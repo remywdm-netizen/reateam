@@ -12,6 +12,12 @@ Application web (un seul fichier `index.html`, sans serveur) pour le roulement d
 - MAR : CS (100 %), RW et SG (90 %), MS et JC (80 %), Extérieur réa (fixe en réa), Extérieur renfort (ajouté automatiquement en réa ou en endoscopie quand un poste manque, la réa en priorité).
 - Temps partiels en journées entières : 0,9 = 2 jours off en cycle A, 3 en cycle B ; 0,8 = 5 jours off par cycle. Les jours off sont posés sur la 2e semaine de réa (compensés par l'extérieur renfort) et sur des jours d'endoscopie sans consultation ni bloc imposé.
 
+## Code d'accès
+
+Un code d'accès (lettres et chiffres, majuscules ou minuscules indifférentes) est demandé à l'ouverture. Il est mémorisé 30 jours sur chaque appareil, ou jusqu'au clic sur **Se déconnecter**. Pour le changer, calculez l'empreinte SHA-256 de `planning-mar:<NOUVEAU CODE EN MAJUSCULES>` et remplacez `ACCESS_HASH` dans `index.html`.
+
+Ce code évite un accès fortuit, mais ce n'est pas une vraie sécurité. Le site est statique et le dépôt public, donc le contenu de `index.html` reste lisible sur GitHub, et un code simple peut être deviné à partir de son empreinte. N'y mettez aucune donnée sensible (la page ne contient que les initiales des MAR, les saisies restant dans chaque navigateur).
+
 ## Onglets
 
 - **Planning** : semaines réelles avec dates, effectifs réa / endo, consultations, et alertes (réa réduite, endoscopie incomplète, consultation à réattribuer avec les MAR disponibles). Export CSV et impression.
