@@ -16,6 +16,7 @@ Application web (un seul fichier `index.html`, sans serveur) pour le roulement d
 
 - **Planning** : semaines réelles avec dates, effectifs réa / endo, consultations, et alertes (réa réduite, endoscopie incomplète, consultation à réattribuer avec les MAR disponibles). Export CSV et impression.
 - **Indisponibilités** : saisie des congés, formations, maladies… pour chaque MAR, sur une date ou une période.
+- **Desiderata** : chaque MAR à temps partiel choisit ses jours off, période de 5 semaines par période (moitié A ou B du cycle), en cliquant dans une grille. Seuls les jours de réa ou d'endoscopie sont possibles (jamais un jour de consultation ou de bloc imposé), et un seul temps partiel peut être off par jour, car le renfort ne compense qu'un poste. Dès que le quota de la période est atteint (0,9 : 2 jours en A, 3 en B ; 0,8 : 5 jours), les souhaits remplacent la répartition par défaut dans le planning. Sinon la répartition par défaut reste appliquée.
 - **Paramètres** : date de la semaine 1 du cycle, noms des MAR, export / import des données.
 
 ## Mise en ligne sur GitHub Pages
@@ -27,4 +28,4 @@ Application web (un seul fichier `index.html`, sans serveur) pour le roulement d
 
 ## Données
 
-Les indisponibilités sont enregistrées dans le navigateur de chaque utilisateur (localStorage). Pour partager une saisie, utilisez **Paramètres → Exporter les données**, puis **Importer un fichier** sur l'autre poste. Aucune donnée n'est envoyée sur un serveur.
+Les indisponibilités et les desiderata sont enregistrés dans le navigateur de chaque utilisateur (localStorage). Pour partager une saisie, utilisez **Paramètres → Exporter les données**, puis **Importer un fichier** sur l'autre poste. Aucune donnée n'est envoyée sur un serveur.
