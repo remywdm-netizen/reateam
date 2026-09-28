@@ -97,7 +97,7 @@ td.crit{color:var(--crit);font-weight:700}
 #gate form{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:28px 24px;width:100%;max-width:360px;text-align:center}
 #gate h1{font-size:1.25rem;margin:0 0 6px}
 #gate p{margin:0 0 18px;color:var(--muted);font-size:.9rem}
-#gate input{width:100%;font-size:1.6rem;letter-spacing:.4em;text-align:center;padding:10px;margin-bottom:12px}
+#gate input{width:100%;font-size:1.6rem;letter-spacing:.25em;text-align:center;padding:10px;margin-bottom:12px}
 #gate .btn{width:100%;padding:12px}
 #gate .err{color:var(--crit);min-height:1.4em;margin:12px 0 0;font-size:.9rem}
 body.locked>header,body.locked>main{display:none}
@@ -117,7 +117,7 @@ header{position:relative}
   <form id="gateForm" autocomplete="off">
     <h1>Planning MAR</h1>
     <p>Saisissez le code d'accès du service.</p>
-    <input type="password" id="gateCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" aria-label="Code d'accès" required>
+    <input type="password" id="gateCode" maxlength="32" autocapitalize="characters" spellcheck="false" aria-label="Code d'accès" required>
     <button class="btn" type="submit">Entrer</button>
     <p class="err" id="gateErr" role="alert"></p>
   </form>
@@ -237,8 +237,8 @@ header{position:relative}
 
 <script>
 /* ---------- Code d'accès ---------- */
-// Empreinte SHA-256 de "planning-mar:<code>". Pour changer le code, remplacez cette valeur.
-const ACCESS_HASH="c74ad975b877893b5028e3f2b18e7c2379311d46e3b5609c256e9d756c262a4b";
+// Empreinte SHA-256 de "planning-mar:<CODE EN MAJUSCULES>". Pour changer le code, remplacez cette valeur.
+const ACCESS_HASH="33fe181a2d156c95ff906f78794596c148ba21f426329ab6fc06c8074e525f05";
 const ACCESS_KEY="planning-mar-acces", ACCESS_DAYS=30;
 async function sha256(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function unlock(){document.body.classList.remove("locked")}
@@ -247,7 +247,7 @@ if(document.body.classList.contains("locked")) document.getElementById("gateCode
 document.getElementById("gateForm").onsubmit=async e=>{
   e.preventDefault(); const f=e.target, inp=document.getElementById("gateCode"), err=document.getElementById("gateErr"), bt=f.querySelector("button");
   bt.disabled=true;
-  if(await sha256("planning-mar:"+inp.value.trim())===ACCESS_HASH){
+  if(await sha256("planning-mar:"+inp.value.trim().toUpperCase())===ACCESS_HASH){
     try{localStorage.setItem(ACCESS_KEY,JSON.stringify({h:ACCESS_HASH,until:Date.now()+ACCESS_DAYS*864e5}))}catch(_){}
     inp.value=""; err.textContent=""; bt.disabled=false; unlock();
   }else{

@@ -14,9 +14,9 @@ Application web (un seul fichier `index.html`, sans serveur) pour le roulement d
 
 ## Code d'accès
 
-Un code à 6 chiffres est demandé à l'ouverture. Il est mémorisé 30 jours sur chaque appareil, ou jusqu'au clic sur **Se déconnecter**. Pour le changer, calculez l'empreinte SHA-256 de `planning-mar:<nouveau code>` et remplacez `ACCESS_HASH` dans `index.html`.
+Un code d'accès (lettres et chiffres, majuscules ou minuscules indifférentes) est demandé à l'ouverture. Il est mémorisé 30 jours sur chaque appareil, ou jusqu'au clic sur **Se déconnecter**. Pour le changer, calculez l'empreinte SHA-256 de `planning-mar:<NOUVEAU CODE EN MAJUSCULES>` et remplacez `ACCESS_HASH` dans `index.html`.
 
-Ce code évite un accès fortuit, mais ce n'est pas une vraie sécurité. Le site est statique et le dépôt public, donc le contenu de `index.html` reste lisible sur GitHub, et un code court peut être retrouvé à partir de son empreinte. N'y mettez aucune donnée sensible (la page ne contient que les initiales des MAR, les saisies restant dans chaque navigateur).
+Ce code évite un accès fortuit, mais ce n'est pas une vraie sécurité. Le site est statique et le dépôt public, donc le contenu de `index.html` reste lisible sur GitHub, et un code simple peut être deviné à partir de son empreinte. N'y mettez aucune donnée sensible (la page ne contient que les initiales des MAR, les saisies restant dans chaque navigateur).
 
 ## Onglets
 
