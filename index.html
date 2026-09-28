@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Planning MAR · Réa / Endoscopie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#16323a; --muted:#5b7078; --line:#d5e0e0; --paper:#ffffff; --bg:#eef3f2;
+  --accent:#0f6b73; --accent-soft:#d8ecec;
+  --rea:#f6d4d0; --rea-ink:#7a2a22;
+  --endo:#e3f0e4; --cons:#d6e6f5; --cons2:#b9d3ee; --bloc:#fbe3cf;
+  --off:#e4e4e4; --renfort:#fff1c2; --indispo:#3d4a4f; --indispo-ink:#fff;
+  --warn:#b25e00; --crit:#b3261e;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;font-size:15px;line-height:1.45}
+header{background:var(--ink);color:#fff;padding:18px 20px 0}
+header h1{margin:0 0 4px;font-size:1.35rem;font-weight:700}
+header p{margin:0 0 14px;color:#b8cdd1;font-size:.9rem}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button{font:inherit;border:0;background:transparent;color:#cfe0e2;padding:10px 16px;border-radius:8px 8px 0 0;cursor:pointer}
+nav button[aria-selected="true"]{background:var(--bg);color:var(--ink);font-weight:700}
+nav button:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #f2b705;outline-offset:2px}
+main{max-width:1100px;margin:0 auto;padding:20px}
+section[hidden]{display:none}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:18px}
+h2{font-size:1.15rem;margin:0 0 12px}
+h3{font-size:1rem;margin:0}
+label{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:var(--muted)}
+input,select{font:inherit;color:var(--ink);padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:#fff}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.btn{font:inherit;border:1px solid var(--accent);background:var(--accent);color:#fff;padding:9px 16px;border-radius:6px;cursor:pointer}
+.btn.ghost{background:#fff;color:var(--accent)}
+.btn.small{padding:4px 10px;font-size:.85rem}
+.btn.danger{border-color:var(--crit);color:var(--crit);background:#fff}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+.summary{margin-left:auto;font-size:.9rem;color:var(--muted)}
+.summary strong{color:var(--crit)}
+.week{background:var(--paper);border:1px solid var(--line);border-radius:10px;margin-bottom:16px;overflow:hidden}
+.week-head{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;padding:12px 16px;border-bottom:1px solid var(--line)}
+.week-head .cyc{color:var(--muted);font-size:.85rem}
+.week.has-crit{border-color:var(--crit)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th,td{padding:6px 8px;text-align:center;border-bottom:1px solid var(--line);font-size:.85rem}
+thead th{background:#f6f9f9;font-weight:700}
+thead th small{display:block;font-weight:400;color:var(--muted)}
+tbody th{text-align:left;white-space:nowrap}
+tbody th small{color:var(--muted);font-weight:400;margin-left:4px}
+td span.tag{display:block;border-radius:5px;padding:5px 4px;line-height:1.2}
+.t-REA{background:var(--rea);color:var(--rea-ink)}
+.t-ENDO{background:var(--endo)}
+.t-CONS{background:var(--cons)}
+.t-CONSX{background:var(--cons2)}
+.t-BLOC{background:var(--bloc)}
+.t-OFF{background:var(--off);color:#555}
+.t-RENFORT{background:var(--renfort)}
+.t-REA_R{background:var(--renfort);color:var(--rea-ink);box-shadow:inset 0 0 0 2px var(--rea)}
+.t-INDISPO{background:var(--indispo);color:var(--indispo-ink)}
+.t-INDISPO s{opacity:.7;font-size:.75rem;display:block}
+tr.count td,tr.count th{font-size:.78rem;color:var(--muted);background:#fafcfc}
+td.low{color:var(--warn);font-weight:700}
+td.crit{color:var(--crit);font-weight:700}
+.alerts{margin:0;padding:10px 16px 12px 34px;font-size:.87rem;background:#fff8f6;border-top:1px solid var(--line)}
+.alerts li{margin:3px 0}
+.alerts li.crit{color:var(--crit)}
+.alerts li.warn{color:var(--warn)}
+.legend{display:flex;flex-wrap:wrap;gap:8px;font-size:.8rem;margin-bottom:14px}
+.legend span{padding:4px 8px;border-radius:5px}
+.list{width:100%;min-width:520px}
+.list td,.list th{text-align:left}
+.empty{color:var(--muted);font-style:italic;padding:12px 0}
+.people{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.chip{display:inline-block;padding:2px 8px;border-radius:10px;background:var(--accent-soft);font-size:.8rem;margin-left:6px}
+.note{font-size:.85rem;color:var(--muted);margin:8px 0 0}
+@media print{
+  header nav,.toolbar,#tab-indispo,#tab-params{display:none!important}
+  body{background:#fff} .week{break-inside:avoid;border-color:#999}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Planning MAR · Réa / Endoscopie</h1>
+  <p>Cycle de 10 semaines : réa à 3 (2 MAR du roulement + 1 extérieur), endoscopie à 3, consultations et temps partiels intégrés.</p>
+  <nav role="tablist">
+    <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
+    <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
+    <button role="tab" data-tab="params" aria-selected="false">Paramètres</button>
+  </nav>
+</header>
+
+<main>
+<!-- PLANNING -->
+<section id="tab-planning">
+  <div class="toolbar">
+    <label>Afficher à partir du
+      <input type="date" id="viewFrom">
+    </label>
+    <label>Nombre de semaines
+      <select id="viewWeeks"><option>5</option><option selected>10</option><option>20</option><option>52</option></select>
+    </label>
+    <label style="flex-direction:row;align-items:center;gap:6px;margin-top:18px">
+      <input type="checkbox" id="onlyAlerts"> Semaines avec alertes uniquement
+    </label>
+    <button class="btn ghost" id="csvBtn" style="margin-top:18px">Exporter en CSV</button>
+    <button class="btn ghost" id="printBtn" style="margin-top:18px">Imprimer</button>
+    <div class="summary" id="summary"></div>
+  </div>
+  <div class="legend" id="legend"></div>
+  <div id="weeks"></div>
+</section>
+
+<!-- INDISPONIBILITÉS -->
+<section id="tab-indispo" hidden>
+  <div class="panel">
+    <h2>Ajouter une indisponibilité</h2>
+    <div class="row">
+      <label>MAR<select id="iWho"></select></label>
+      <label>Du<input type="date" id="iFrom"></label>
+      <label>Au<input type="date" id="iTo"></label>
+      <label>Motif
+        <select id="iMotif"><option>Congé</option><option>Formation</option><option>Maladie</option><option>Récupération</option><option>Garde</option><option>Autre</option></select>
+      </label>
+      <label>Commentaire<input type="text" id="iNote" placeholder="facultatif"></label>
+      <button class="btn" id="iAdd">Ajouter</button>
+    </div>
+    <p class="note" id="iMsg" role="status"></p>
+  </div>
+  <div class="panel">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0">Indisponibilités enregistrées</h2>
+      <label style="flex-direction:row;align-items:center;gap:6px">Filtrer
+        <select id="iFilter"><option value="">Tous les MAR</option></select>
+      </label>
+    </div>
+    <div class="scroll"><div id="iList"></div></div>
+  </div>
+</section>
+
+<!-- PARAMÈTRES -->
+<section id="tab-params" hidden>
+  <div class="panel">
+    <h2>Début du cycle</h2>
+    <div class="row">
+      <label>Lundi de la semaine 1 (cycle A)<input type="date" id="pStart"></label>
+    </div>
+    <p class="note">Le cycle de 10 semaines se répète automatiquement avant et après cette date.</p>
+  </div>
+  <div class="panel">
+    <h2>MAR</h2>
+    <div class="people" id="pNames"></div>
+  </div>
+  <div class="panel">
+    <h2>Sauvegarde et partage</h2>
+    <p class="note" style="margin:0 0 12px">Les données sont enregistrées dans ce navigateur. Exportez-les pour les sauvegarder ou les transmettre à un collègue.</p>
+    <div class="row">
+      <button class="btn" id="expBtn">Exporter les données (JSON)</button>
+      <label class="btn ghost" style="flex-direction:row;color:var(--accent)">Importer un fichier
+        <input type="file" id="impFile" accept="application/json" hidden>
+      </label>
+      <button class="btn danger" id="resetBtn">Tout réinitialiser</button>
+    </div>
+    <p class="note" id="pMsg" role="status"></p>
+  </div>
+</section>
+</main>
+
+<script>
+/* ---------- Données de base ---------- */
+const STORE="planning-mar-v2";
+const DAYS=["Lundi","Mardi","Mercredi","Jeudi","Vendredi"];
+const QUOT={1:"100 %",2:"90 %",3:"90 %",4:"80 %",5:"80 %",6:"Réa fixe",7:"Renfort"};
+const DEFAULT_NAMES={1:"CS",2:"RW",3:"SG",4:"MS",5:"JC",6:"Extérieur réa",7:"Extérieur renfort"};
+const LABEL={REA:"Réa",ENDO:"Endo",CONS:"Endo + consult.",CONSX:"Endo + consult. *",BLOC:"Endo + bloc ap-m",OFF:"Off temps partiel",RENFORT:"Endo (renfort)",REA_R:"Réa (renfort)",INDISPO:"Indisponible"};
+const CONS_NEEDED=[2,1,1,2,0];
+// jours off des temps partiels : [semaine du cycle 1-5, jour 0-4]
+const OFF_A={2:[[2,2],[5,4]],3:[[3,2],[1,4]],4:[[4,2],[4,4],[5,3],[1,1],[2,4]],5:[[5,1],[5,2],[1,3],[2,1],[3,4]]};
+const OFF_B={2:[[3,3]],3:[[4,3]]};
+const m5=x=>((x-1)%5+5)%5+1;
+
+/* ---------- État ---------- */
+function mondayOf(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());const g=(x.getDay()+6)%7;x.setDate(x.getDate()-g);return x}
+function iso(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+function parse(s){const [y,mo,da]=s.split("-").map(Number);return new Date(y,mo-1,da)}
+function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
+const fmt=new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short"});
+const fmtLong=new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"long",year:"numeric"});
+
+let state;
+function load(){
+  try{const raw=localStorage.getItem(STORE); if(raw){state=JSON.parse(raw)}}catch(e){state=null}
+  if(!state||!state.start){state={start:iso(mondayOf(new Date())),names:{...DEFAULT_NAMES},indispos:[]}}
+  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[];
+}
+function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}}
+const nm=j=>state.names[j]||("MAR "+j);
+
+/* ---------- Trame théorique ---------- */
+function baseWeek(w){ // w = 1..10
+  const k=m5(w), cyc=w<=5?"A":"B", s={};
+  [k,m5(k+1)].forEach(j=>s[j]=Array(5).fill("REA"));
+  s[m5(k+2)]=["CONS","BLOC","ENDO","CONS","ENDO"];   // dernière semaine d'endo avant la réa
+  s[m5(k+3)]=["BLOC","ENDO","CONS","CONSX","ENDO"];  // semaine du milieu
+  s[m5(k+4)]=["CONS","CONS","ENDO","ENDO","ENDO"];   // sortie de réa
+  s[6]=Array(5).fill("REA");                          // MAR extérieur fixe en réa
+  s[7]=Array(5).fill("");
+  const add=(o)=>{for(const j in o)for(const [wk,d] of o[j]) if(wk===k){ if(!["REA","ENDO"].includes(s[j][d])) console.error("conflit off",w,j,d); s[j][d]="OFF"}};
+  add(OFF_A); if(cyc==="B") add(OFF_B);
+  return {k,cyc,s};
+}
+function cycleWeek(monday){
+  const diff=Math.round((mondayOf(monday)-parse(state.start))/(7*864e5));
+  return ((diff%10)+10)%10+1;
+}
+function indispoOn(j,dateIso){return state.indispos.find(i=>+i.who===j&&i.from<=dateIso&&dateIso<=i.to)}
+const isEndo=r=>["ENDO","CONS","CONSX","BLOC","RENFORT"].includes(r);
+
+/* ---------- Calcul d'une semaine réelle ---------- */
+function buildWeek(monday){
+  const w=cycleWeek(monday), {k,cyc,s}=baseWeek(w);
+  const days=[], alerts=[];
+  for(let d=0;d<5;d++){
+    const date=addDays(monday,d), di=iso(date), cell={};
+    for(let j=1;j<=7;j++){
+      const plan=s[j][d]; const ind=indispoOn(j,di);
+      cell[j]=(ind&&plan!=="OFF")?{role:plan?"INDISPO":"",plan,ind}:{role:plan,plan};
+      if(ind&&!plan) cell[j].ind=ind; // E2 indisponible
+    }
+    let rea=[1,2,3,4,5,6].filter(j=>cell[j].role==="REA").length;
+    let endo=[1,2,3,4,5].filter(j=>isEndo(cell[j].role)).length;
+    const dl=DAYS[d], e2free=()=>!cell[7].role&&!cell[7].ind;
+    // Le renfort extérieur va d'abord en réa, sinon en endoscopie
+    if(rea<3&&e2free()){cell[7].role="REA_R";rea++}
+    if(endo<3&&e2free()){cell[7].role="RENFORT";endo++}
+    if(cell[7].ind&&(rea<3||endo<3)) alerts.push(["crit",`${dl} : renfort ${nm(7)} nécessaire mais indisponible.`]);
+    if(endo<3) alerts.push(["crit",`${dl} : endoscopie à ${endo} MAR (3 attendus).`]);
+    if(rea<3){
+      const cand=[1,2,3,4,5].filter(j=>cell[j].role==="ENDO").map(nm);
+      alerts.push([rea<2?"crit":"warn",`${dl} : réa à ${rea} MAR (3 attendus).`+(cand.length?` Renfort possible depuis l'endo : ${cand.join(", ")}.`:"")]);
+    }
+    // Consultations et blocs perdus
+    for(let j=1;j<=7;j++){
+      const c=cell[j];
+      if(c.role!=="INDISPO") continue;
+      if(c.plan==="CONS"||c.plan==="CONSX"){
+        const cand=[1,2,3,4,5,7].filter(x=>cell[x].role==="ENDO"||cell[x].role==="RENFORT").map(nm);
+        let t=`${dl} ap-m : consultation de ${nm(j)} à réattribuer`+(cand.length?` (disponibles : ${cand.join(", ")})`:" (aucun MAR libre en endo)")+".";
+        if(d===1) t+=" Le remplaçant sera au bloc le lundi ap-m suivant.";
+        if(c.plan==="CONSX") t+=" Le remplaçant sera au bloc le mardi ap-m suivant.";
+        alerts.push([cand.length?"warn":"crit",t]);
+      }
+      if(c.plan==="BLOC") alerts.push(["warn",`${dl} ap-m : bloc imposé de ${nm(j)} non assuré.`]);
+    }
+    const cons=[1,2,3,4,5,6,7].filter(j=>cell[j].role==="CONS"||cell[j].role==="CONSX").length;
+    days.push({date,di,cell,rea,endo,cons});
+  }
+  return {monday,w,k,cyc,days,alerts};
+}
+
+/* ---------- Rendu planning ---------- */
+function esc(t){return String(t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function tag(c){
+  if(!c.role){return c.ind?`<span class="tag t-OFF">Indispo</span>`:""}
+  const cls=c.role==="CONSX"?"CONSX":c.role;
+  if(c.role==="INDISPO") return `<span class="tag t-INDISPO">${esc(c.ind.motif)}<s>${esc(LABEL[c.plan])}</s></span>`;
+  return `<span class="tag t-${cls}">${LABEL[c.role]}</span>`;
+}
+function renderLegend(){
+  document.getElementById("legend").innerHTML=Object.entries({REA:"t-REA",ENDO:"t-ENDO",CONS:"t-CONS",CONSX:"t-CONSX",BLOC:"t-BLOC",OFF:"t-OFF",RENFORT:"t-RENFORT",REA_R:"t-REA_R",INDISPO:"t-INDISPO"})
+   .map(([k,c])=>`<span class="${c}">${LABEL[k]}</span>`).join("")+`<span style="color:var(--muted)">* consultant du jeudi : bloc le mardi ap-m suivant</span>`;
+}
+let lastWeeks=[];
+function renderPlanning(){
+  const from=mondayOf(parse(document.getElementById("viewFrom").value||state.start));
+  const n=+document.getElementById("viewWeeks").value, only=document.getElementById("onlyAlerts").checked;
+  const weeks=[]; for(let i=0;i<n;i++) weeks.push(buildWeek(addDays(from,7*i)));
+  lastWeeks=weeks;
+  let html="", nAl=0, nCrit=0;
+  for(const W of weeks){
+    nAl+=W.alerts.length; nCrit+=W.alerts.filter(a=>a[0]==="crit").length;
+    if(only&&!W.alerts.length) continue;
+    const crit=W.alerts.some(a=>a[0]==="crit");
+    html+=`<article class="week${crit?" has-crit":""}"><div class="week-head"><h3>Semaine du ${fmtLong.format(W.monday)}</h3><span class="cyc">Cycle ${W.cyc}, semaine ${W.w} sur 10</span></div><div class="scroll"><table><thead><tr><th scope="col">MAR</th>`;
+    W.days.forEach((D,i)=>html+=`<th scope="col">${DAYS[i]}<small>${fmt.format(D.date)}</small></th>`);
+    html+=`</tr></thead><tbody>`;
+    for(let j=1;j<=7;j++){
+      html+=`<tr><th scope="row">${esc(nm(j))}<small>${QUOT[j]}</small></th>`;
+      W.days.forEach(D=>html+=`<td>${tag(D.cell[j])}</td>`);
+      html+=`</tr>`;
+    }
+    html+=`<tr class="count"><th scope="row">Effectif réa</th>`+W.days.map(D=>`<td class="${D.rea<2?"crit":D.rea<3?"low":""}">${D.rea}</td>`).join("")+`</tr>`;
+    html+=`<tr class="count"><th scope="row">Effectif endo</th>`+W.days.map(D=>`<td class="${D.endo<3?"crit":""}">${D.endo}</td>`).join("")+`</tr>`;
+    html+=`<tr class="count"><th scope="row">Consultations</th>`+W.days.map((D,i)=>`<td class="${D.cons<CONS_NEEDED[i]?"crit":""}">${D.cons} / ${CONS_NEEDED[i]}</td>`).join("")+`</tr>`;
+    html+=`</tbody></table></div>`;
+    if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1])}</li>`).join("")+`</ul>`;
+    html+=`</article>`;
+  }
+  document.getElementById("weeks").innerHTML=html||`<p class="empty">Aucune alerte sur la période affichée.</p>`;
+  document.getElementById("summary").innerHTML=nAl?`${nAl} alerte${nAl>1?"s":""}, dont <strong>${nCrit} critique${nCrit>1?"s":""}</strong>`:"Aucune alerte sur la période";
+}
+
+/* ---------- CSV ---------- */
+document.getElementById("csvBtn").onclick=()=>{
+  const rows=[["Semaine","Cycle","Date","Jour","MAR","Poste","Motif indisponibilité"]];
+  for(const W of lastWeeks) W.days.forEach((D,i)=>{for(let j=1;j<=7;j++){const c=D.cell[j]; if(!c.role&&!c.ind) continue;
+    rows.push([iso(W.monday),W.cyc+W.w,D.di,DAYS[i],nm(j),c.role?LABEL[c.role]:"",c.ind?c.ind.motif:""])}});
+  const csv="\ufeff"+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";")).join("\n");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download="planning-mar.csv"; a.click();
+};
+document.getElementById("printBtn").onclick=()=>window.print();
+
+/* ---------- Indisponibilités ---------- */
+function fillSelects(){
+  const opts=[1,2,3,4,5,6,7].map(j=>`<option value="${j}">${esc(nm(j))} (${QUOT[j]})</option>`).join("");
+  document.getElementById("iWho").innerHTML=opts;
+  const f=document.getElementById("iFilter"), v=f.value;
+  f.innerHTML=`<option value="">Tous les MAR</option>`+opts; f.value=v;
+}
+function renderIndispo(){
+  const f=document.getElementById("iFilter").value;
+  const list=state.indispos.filter(i=>!f||i.who==f).sort((a,b)=>a.from.localeCompare(b.from));
+  if(!list.length){document.getElementById("iList").innerHTML=`<p class="empty">Aucune indisponibilité saisie. Utilisez le formulaire ci-dessus pour en ajouter une.</p>`;return}
+  document.getElementById("iList").innerHTML=`<table class="list"><thead><tr><th>MAR</th><th>Du</th><th>Au</th><th>Jours ouvrés</th><th>Motif</th><th>Commentaire</th><th></th></tr></thead><tbody>`+
+   list.map(i=>`<tr><td><strong>${esc(nm(+i.who))}</strong></td><td>${fmtLong.format(parse(i.from))}</td><td>${fmtLong.format(parse(i.to))}</td><td>${workdays(i.from,i.to)}</td><td>${esc(i.motif)}</td><td>${esc(i.note||"")}</td><td><button class="btn small danger" data-del="${i.id}">Supprimer</button></td></tr>`).join("")+`</tbody></table>`;
+}
+function workdays(a,b){let n=0;for(let d=parse(a);d<=parse(b);d=addDays(d,1)){const g=d.getDay();if(g&&g<6)n++}return n}
+document.getElementById("iAdd").onclick=()=>{
+  const who=+document.getElementById("iWho").value, from=document.getElementById("iFrom").value;
+  let to=document.getElementById("iTo").value||from; const msg=document.getElementById("iMsg");
+  if(!from){msg.textContent="Indiquez au moins la date de début.";return}
+  if(to<from){msg.textContent="La date de fin précède la date de début : corrigez l'une des deux.";return}
+  state.indispos.push({id:Date.now().toString(36),who,from,to,motif:document.getElementById("iMotif").value,note:document.getElementById("iNote").value.trim()});
+  save(); msg.textContent=`Indisponibilité ajoutée pour ${nm(who)} (${workdays(from,to)} jour(s) ouvré(s)).`;
+  document.getElementById("iNote").value=""; renderIndispo(); renderPlanning();
+};
+document.getElementById("iFrom").onchange=e=>{const t=document.getElementById("iTo"); if(!t.value||t.value<e.target.value) t.value=e.target.value};
+document.getElementById("iList").onclick=e=>{const id=e.target.dataset.del; if(!id) return;
+  state.indispos=state.indispos.filter(i=>i.id!==id); save(); renderIndispo(); renderPlanning();};
+document.getElementById("iFilter").onchange=renderIndispo;
+
+/* ---------- Paramètres ---------- */
+function renderParams(){
+  document.getElementById("pStart").value=state.start;
+  document.getElementById("pNames").innerHTML=[1,2,3,4,5,6,7].map(j=>`<label>${j<=5?"MAR du roulement":j===6?"Extérieur réa":"Extérieur renfort"} <span class="chip">${QUOT[j]}</span><input data-name="${j}" value="${esc(nm(j))}"></label>`).join("");
+}
+document.getElementById("pStart").onchange=e=>{
+  if(!e.target.value) return; const mon=mondayOf(parse(e.target.value)); state.start=iso(mon); e.target.value=state.start;
+  document.getElementById("pMsg").textContent=`Semaine 1 du cycle fixée au lundi ${fmtLong.format(mon)}.`;
+  document.getElementById("viewFrom").value=state.start; save(); renderPlanning();};
+document.getElementById("pNames").oninput=e=>{const j=e.target.dataset.name; if(!j) return;
+  state.names[j]=e.target.value.trim()||DEFAULT_NAMES[j]; save(); fillSelects(); renderIndispo(); renderPlanning();};
+document.getElementById("expBtn").onclick=()=>{
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:"application/json"}));
+  a.download=`planning-mar-${iso(new Date())}.json`; a.click();};
+document.getElementById("impFile").onchange=e=>{const f=e.target.files[0]; if(!f) return; const r=new FileReader();
+  r.onload=()=>{try{const d=JSON.parse(r.result); if(!d.start||!Array.isArray(d.indispos)) throw 0; state=d; load2();
+    document.getElementById("pMsg").textContent=`Données importées : ${state.indispos.length} indisponibilité(s).`}
+    catch(_){document.getElementById("pMsg").textContent="Ce fichier n'est pas une sauvegarde du planning. Choisissez un fichier exporté depuis cette page."}};
+  r.readAsText(f); e.target.value="";};
+document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes les indisponibilités et remettre les paramètres par défaut ?")) return;
+  try{localStorage.removeItem(STORE)}catch(e){} state=null; load(); load2();};
+function load2(){state.names={...DEFAULT_NAMES,...state.names}; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
+
+/* ---------- Onglets ---------- */
+document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) return;
+  document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
+  document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+t);};
+["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
+
+load(); renderLegend(); load2();
+</script>
+</body>
+</html>
