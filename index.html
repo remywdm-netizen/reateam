@@ -106,6 +106,9 @@ table.half td[data-j]:hover{background:#f0f6f6}
 .tile{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .tile b{display:block;font-size:1.5rem;line-height:1.1}
 .tile span{font-size:.82rem;color:var(--muted)}
+.cons-day .n,#coOut .n{display:inline-block;border-radius:5px;padding:2px 7px;margin:2px 4px 2px 0;font-size:.85rem}
+.cons-day small{color:var(--muted);margin-right:8px}
+.cons-day tr.wk td{border-top:2px solid var(--line)}
 .note{font-size:.85rem;color:var(--muted);margin:8px 0 0}
 #gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
 #gate form{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:28px 24px;width:100%;max-width:360px;text-align:center}
@@ -144,6 +147,7 @@ header{position:relative}
     <button role="tab" data-tab="planning" aria-selected="true">Planning par MAR</button>
     <button role="tab" data-tab="poste" aria-selected="false">Planning par poste</button>
     <button role="tab" data-tab="prat" aria-selected="false">Par praticien</button>
+    <button role="tab" data-tab="cons" aria-selected="false">Consultations</button>
     <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
     <button role="tab" data-tab="params" aria-selected="false">Paramètres</button>
   </nav>
@@ -185,6 +189,18 @@ header{position:relative}
     <button class="btn ghost" id="prPrint" style="margin-top:18px">Imprimer</button>
   </div>
   <div id="prOut"></div>
+</section>
+
+<!-- RÉCAPITULATIF DES CONSULTATIONS -->
+<section id="tab-cons" hidden>
+  <div class="toolbar">
+    <label>À partir de la semaine du<input type="date" id="coFrom"></label>
+    <label>Nombre de semaines
+      <select id="coWeeks"><option>1</option><option>2</option><option selected>5</option><option>10</option><option>13</option></select>
+    </label>
+    <button class="btn ghost" id="coPrint" style="margin-top:18px">Imprimer</button>
+  </div>
+  <div id="coOut"></div>
 </section>
 
 <!-- INDISPONIBILITÉS -->
@@ -726,6 +742,7 @@ function renderPlanning(){
   }
   document.getElementById("weeks").innerHTML=html||`<p class="empty">Aucune alerte sur la période affichée.</p>`;
   if(!document.getElementById("tab-prat").hidden) renderPrat();
+  if(!document.getElementById("tab-cons").hidden) renderCons();
   document.getElementById("summary").innerHTML=nAl?`${nAl} alerte${nAl>1?"s":""}, dont <strong>${nCrit} critique${nCrit>1?"s":""}</strong>`:"Aucune alerte sur la période";
 }
 
@@ -772,6 +789,46 @@ function renderPrat(){
 }
 ["prWho","prFrom","prWeeks"].forEach(id=>document.getElementById(id).onchange=renderPrat);
 document.getElementById("prPrint").onclick=()=>window.print();
+
+/* ---------- Récapitulatif des consultations ---------- */
+// Par jour : consultations assurées (lib à part, avec le bloc qui suit), consultations à confier à un extérieur,
+// puis totaux par MAR sur la période
+function renderCons(){
+  const fi=document.getElementById("coFrom"); if(!fi.value) fi.value=state.start;
+  const from=mondayOf(parse(fi.value)), n=+document.getElementById("coWeeks").value;
+  const tot={}, chip=(j,cls)=>`<span class="n t-${cls}">${esc(nm(j))}</span>`;
+  let rows="", nCons=0, nLib=0, nExt=0;
+  for(let i=0;i<n;i++){
+    const W=buildWeek(addDays(from,7*i));
+    W.days.forEach((D,d)=>{
+      if(!CONS_NEEDED[d]) return;
+      const simple=[], lib=[];
+      for(let j=1;j<=8;j++){
+        const r=D.cell[j].role;
+        if(!["CONS","CONSX","REA_CONS"].includes(r)) continue;
+        (isLib(r,d)?lib:simple).push(j);
+        tot[j]=tot[j]||{c:0,l:0}; isLib(r,d)?tot[j].l++:tot[j].c++;
+      }
+      const libNeed=d===1||d===3?1:0, ext=Math.max(0,CONS_NEEDED[d]-simple.length-lib.length);
+      nCons+=simple.length; nLib+=lib.length; nExt+=ext;
+      const bd=addDays(D.date,d===1?6:5);
+      rows+=`<tr${d===0&&i?' class="wk"':""}><td><strong>${fmtWd.format(D.date)}</strong></td>`+
+        `<td>${simple.map(j=>chip(j,"CONS")).join("")||(CONS_NEEDED[d]-libNeed?"—":"")}</td>`+
+        `<td>${libNeed?(lib.length?lib.map(j=>chip(j,"CONSX")+`<small> bloc ${fmtWd.format(bd)} ap-m</small>`).join(""):'<span class="status todo">non assurée</span>'):""}</td>`+
+        `<td>${ext?`<span class="status todo">${ext} à confier à un extérieur</span>`:'<span class="status ok">complet</span>'}</td></tr>`;
+    });
+  }
+  const per=Object.keys(tot).map(Number).sort((a,b)=>a-b);
+  document.getElementById("coOut").innerHTML=
+    `<div class="panel"><h2 style="margin-bottom:4px">Consultations</h2><p class="note" style="margin:0 0 14px">Du ${fmtLong.format(from)} au ${fmtLong.format(addDays(from,7*n-3))}. Consultations l'après-midi : lundi ×2, mardi ×1 (lib), mercredi ×1, jeudi ×2 (dont 1 lib).</p>`+
+    `<div class="tiles"><div class="tile"><b>${nCons}</b><span>consultations</span></div><div class="tile"><b>${nLib}</b><span>consultations lib</span></div><div class="tile"><b>${nExt}</b><span>à confier à un extérieur</span></div></div>`+
+    `<div class="scroll"><table class="list"><thead><tr><th>MAR</th><th class="num">Consultations</th><th class="num">Consultations lib</th><th class="num">Total</th></tr></thead><tbody>`+
+      (per.length?per.map(j=>`<tr><td><strong>${esc(nm(j))}</strong></td><td class="num">${tot[j].c}</td><td class="num">${tot[j].l}</td><td class="num">${tot[j].c+tot[j].l}</td></tr>`).join(""):`<tr><td colspan="4" class="empty">Aucune consultation sur la période.</td></tr>`)+
+    `</tbody></table></div></div>`+
+    `<div class="panel"><h2>Par jour</h2><div class="scroll"><table class="list cons-day"><thead><tr><th>Jour</th><th>Consultations</th><th>Consultation lib (et bloc qui suit)</th><th>Statut</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+["coFrom","coWeeks"].forEach(id=>document.getElementById(id).onchange=renderCons);
+document.getElementById("coPrint").onclick=()=>window.print();
 
 /* ---------- CSV ---------- */
 document.getElementById("csvBtn").onclick=()=>{
@@ -1037,6 +1094,7 @@ document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) r
   document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
   const sec=t==="poste"?"planning":t;
   if(t==="prat") renderPrat();
+  if(t==="cons") renderCons();
   document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+sec);
   if(sec==="planning"){planView=t==="poste"?"poste":"mar"; renderPlanning()}};
 ["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
