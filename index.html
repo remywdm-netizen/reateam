@@ -220,14 +220,15 @@ header{position:relative}
     <p class="note" id="iMsg" role="status"></p>
   </div>
   <div class="panel">
-    <h2>Proposer les jours off hebdomadaires (temps partiel 80 %)</h2>
+    <h2>Proposer les jours off et de récupération des temps partiels</h2>
     <div class="row">
       <label>MAR<select id="oWho"></select></label>
+      <label>Motif<select id="oMotif"><option>Temps partiel</option><option>Récupération</option></select></label>
       <label>À partir de la semaine du<input type="date" id="oFrom"></label>
       <label>Nombre de semaines<select id="oWeeks"><option>5</option><option selected>10</option><option>20</option></select></label>
       <button class="btn" id="oGo">Proposer</button>
     </div>
-    <p class="note">Un jour off par semaine, choisi là où il pèse le moins sur le planning : jamais un jour de consultation ou de bloc, jamais en 1re semaine de réa (le jour est alors reporté à la semaine suivante). Le choix tient compte des absences, des échanges et des jours off déjà saisis.</p>
+    <p class="note">80 % : un jour par semaine. 90 % : 2 jours sur les 5 semaines du cycle A, 3 sur celles du cycle B, répartis sur des semaines différentes. Chaque jour est choisi là où il pèse le moins sur le planning : jamais un jour de consultation ou de bloc, jamais en 1re semaine de réa (le jour est alors reporté à la semaine suivante). Le choix tient compte des absences, des échanges et des jours off déjà saisis.</p>
     <div class="scroll"><div id="oList"></div></div>
     <p class="note" id="oMsg" role="status"></p>
   </div>
@@ -679,15 +680,18 @@ function recapTable(W){
   return h+`</tbody></table></div>`;
 }
 // Semaines de réa par MAR sur les 13 semaines affichées, comparées au cycle sans échange
+// Jours de réa effectivement assurés par MAR sur les 13 semaines affichées (absences déduites), comparés au cycle
+// sans échange ni absence (semaines de réa × 5) : l'équilibre ne dépend pas du temps de travail
 function renderBalance(from){
-  const n={1:0,2:0,3:0,4:0,5:0}, ref={1:0,2:0,3:0,4:0,5:0};
-  for(let i=0;i<QUARTER;i++){const m=addDays(from,7*i), r=rawRows(m), b=baseWeek(cycleWeek(m)).s;
-    for(let j=1;j<=5;j++){if(r.s[j][0]==="REA") n[j]++; if(b[j][0]==="REA") ref[j]++}}
+  const n={1:0,2:0,3:0,4:0,5:0}, ref={1:0,2:0,3:0,4:0,5:0}, lost={1:0,2:0,3:0,4:0,5:0};
+  for(let i=0;i<QUARTER;i++){const m=addDays(from,7*i), W=buildWeek(m), b=baseWeek(cycleWeek(m)).s;
+    for(let j=1;j<=5;j++){ if(b[j][0]==="REA") ref[j]+=5;
+      W.days.forEach(D=>{const c=D.cell[j]; if(c.role==="REA"||c.role==="REA_CONS") n[j]++; else if(c.role==="INDISPO"&&(c.plan==="REA"||c.plan==="REA_CONS")) lost[j]++})}}
   const end=addDays(from,7*QUARTER-3), off=[1,2,3,4,5].filter(j=>n[j]!==ref[j]);
   document.querySelector("#balanceBox summary").innerHTML=`Équilibre de la réa sur 3 mois `+(off.length?`<span class="status todo">à rééquilibrer : ${off.map(nm).join(", ")}</span>`:`<span class="status ok">équilibré</span>`);
-  document.getElementById("balance").innerHTML=`<p class="note" style="margin:8px 0">Du ${fmtLong.format(from)} au ${fmtLong.format(end)} (13 semaines). Comparaison avec le cycle sans échange : chaque écart doit être nul.</p>`+
-    `<table class="list"><thead><tr><th>MAR</th><th class="num">Semaines de réa</th><th class="num">Selon le cycle</th><th class="num">Écart</th></tr></thead><tbody>`+
-    [1,2,3,4,5].map(j=>{const e=n[j]-ref[j];return `<tr><td><strong>${esc(nm(j))}</strong></td><td class="num">${n[j]}</td><td class="num">${ref[j]}</td><td class="num${e?" over":""}">${e>0?"+":""}${e}</td></tr>`}).join("")+`</tbody></table>`;
+  document.getElementById("balance").innerHTML=`<p class="note" style="margin:8px 0">Du ${fmtLong.format(from)} au ${fmtLong.format(end)} (13 semaines). Jours de réa assurés, absences déduites, comparés au cycle sans échange : chaque écart doit être nul, quel que soit le temps de travail.</p>`+
+    `<table class="list"><thead><tr><th>MAR</th><th class="num">Jours de réa</th><th class="num">Selon le cycle</th><th class="num">Dont absences en réa</th><th class="num">Écart</th></tr></thead><tbody>`+
+    [1,2,3,4,5].map(j=>{const e=n[j]-ref[j];return `<tr><td><strong>${esc(nm(j))}</strong> <span class="chip">${QUOT[j]}</span></td><td class="num">${n[j]}</td><td class="num">${ref[j]}</td><td class="num">${lost[j]||""}</td><td class="num${e?" over":""}">${e>0?"+":""}${e}</td></tr>`}).join("")+`</tbody></table>`;
 }
 let lastWeeks=[];
 function renderPlanning(){
@@ -958,59 +962,84 @@ document.getElementById("iFilter").onchange=renderIndispo;
 const weekCost=W=>W.alerts.reduce((n,a)=>n+(a[0]==="crit"?100:a[0]==="warn"?10:0),0)+W.days.filter(D=>D.cell[7].role).length;
 const fmtWd=new Intl.DateTimeFormat("fr-FR",{weekday:"long",day:"numeric",month:"short"});
 let offProposal=[];
-function proposeOffDays(j,from,n){
+// Période de 5 semaines (moitié A ou B du cycle) contenant ce lundi
+function blockOf(monday){const w=cycleWeek(monday);return {start:iso(addDays(mondayOf(monday),-7*((w-1)%5))),cyc:w<=5?"A":"B"}}
+const inReaWeek=(j,mon)=>rawRows(mon).s[j][0]==="REA";
+// Meilleur jour pour le MAR j parmi les semaines mons : simulation de l'absence, coût = alertes ajoutées,
+// + 5 par jour déjà retenu la même semaine (pour répartir les jours)
+function bestOffDay(j,mons,motif,perWeek){
+  let best=null;
+  for(const mon of mons){
+    if(inReaWeek(j,mon)) continue;   // jamais pendant la réa : les jours de réa restent égaux quel que soit le temps de travail
+    const W0=buildWeek(mon), base=weekCost(W0);
+    W0.days.forEach((D,d)=>{
+      const c=D.cell[j];
+      if(c.ind||c.role!=="ENDO") return;
+      state.indispos.push({id:"tmp",who:j,from:D.di,to:D.di,motif,note:""}); const W=buildWeek(mon); state.indispos.pop();
+      const cost=weekCost(W)-base+5*(perWeek[iso(mon)]||0), newAl=W.alerts.filter(a=>a[0]!=="info"&&!W0.alerts.some(x=>x[1]===a[1])).map(a=>a[1]);
+      if(!best||cost<best.cost) best={mon,d,di:D.di,role:c.role,cost,newAl,renfort:W.days[d].cell[7].role};
+    });
+  }
+  return best;
+}
+const countIn=(j,motif,a,b)=>state.indispos.filter(x=>+x.who===j&&x.motif===motif&&x.from<=b&&x.to>=a).reduce((n,x)=>n+workdays(x.from<a?a:x.from,x.to>b?b:x.to),0);
+function proposeOffDays(j,from,n,motif){
   const tmp=[], out=[]; let owed=0;
+  const keep=b=>{const t={id:"tmp"+b.di,who:j,from:b.di,to:b.di,motif,note:""}; state.indispos.push(t); tmp.push(t)};
   try{
-    for(let i=0;i<n;i++){
-      const mon=addDays(from,7*i), mi=iso(mon), fri=iso(addDays(mon,4));
-      const has=state.indispos.some(x=>+x.who===j&&x.motif==="Temps partiel"&&x.from<=fri&&x.to>=mi);
-      if(has){out.push({mon,note:"Jour off déjà saisi cette semaine."});continue}
-      if(firstRea(mon)===j){owed++;out.push({mon,note:"1re semaine de réa : aucun jour off possible, reporté à la semaine suivante."});continue}
-      let want=1+owed; const picked=[];
-      while(want-->0){
-        const W0=buildWeek(mon), base=weekCost(W0); let best=null;
-        W0.days.forEach((D,d)=>{
-          const c=D.cell[j];
-          if(c.ind||!(c.role==="ENDO"||c.role==="REA")) return;
-          const t={id:"tmp"+d,who:j,from:D.di,to:D.di,motif:"Temps partiel",note:""};
-          state.indispos.push(t); const W=buildWeek(mon); state.indispos.pop();
-          const cost=weekCost(W)-base, newAl=W.alerts.filter(a=>a[0]!=="info"&&!W0.alerts.some(b=>b[1]===a[1])).map(a=>a[1]);
-          if(!best||cost<best.cost) best={d,di:D.di,role:c.role,cost,newAl,renfort:W.days[d].cell[7].role};
-        });
-        if(!best) break;
-        const t={id:"tmp"+best.di,who:j,from:best.di,to:best.di,motif:"Temps partiel",note:""};
-        state.indispos.push(t); tmp.push(t); picked.push(best);
+    if(RATE[j]===.8){
+      // 80 % : un jour par semaine ; en 1re semaine de réa, report à la semaine suivante
+      for(let i=0;i<n;i++){
+        const mon=addDays(from,7*i), mi=iso(mon), fri=iso(addDays(mon,4));
+        if(countIn(j,motif,mi,fri)){out.push({mon,note:"Jour déjà saisi cette semaine."});continue}
+        if(inReaWeek(j,mon)){owed++;out.push({mon,note:"Semaine de réa : aucun jour off, reporté à une semaine d'endoscopie."});continue}
+        let want=Math.min(2,1+owed), got=0;   // au plus 2 jours par semaine, le reste est reporté
+        while(want-->0){const b=bestOffDay(j,[mon],motif,{}); if(!b) break; keep(b); out.push(b); got++}
+        owed=Math.max(0,1+owed-got);
+        if(!got) out.push({mon,note:"Aucun jour possible cette semaine (consultations, bloc ou absences)."});
       }
-      owed=Math.max(0,1+owed-picked.length);
-      if(!picked.length) out.push({mon,note:"Aucun jour possible cette semaine (consultations, bloc ou absences)."});
-      picked.forEach(p=>out.push({mon,...p}));
+    }else{
+      // 90 % : 2 jours sur les 5 semaines du cycle A, 3 sur celles du cycle B
+      const end=addDays(from,7*n);
+      for(let m=from;m<end;){
+        const bl=blockOf(m), bStart=parse(bl.start), bEnd=addDays(bStart,35), mons=[];
+        for(let x=m;x<end&&x<bEnd;x=addDays(x,7)) mons.push(x);
+        const q=bl.cyc==="A"?2:3, have=countIn(j,motif,bl.start,iso(addDays(bStart,32)));
+        let want=q-have; const per={};
+        out.push({note:`Cycle ${bl.cyc} (${fmt.format(bStart)} – ${fmt.format(addDays(bStart,32))}) : ${q} jours`+(have?`, dont ${have} déjà saisi${have>1?"s":""}`:"")+(mons.length<5?` ; période partielle (${mons.length} semaine${mons.length>1?"s":""} sur 5)`:"")+"."});
+        const got=[];
+        while(want-->0){const b=bestOffDay(j,mons,motif,per); if(!b){got.push({di:"9",note:"Plus aucun jour possible sur ce cycle."});break} keep(b); per[iso(b.mon)]=(per[iso(b.mon)]||0)+1; got.push(b)}
+        got.sort((a,b)=>a.di.localeCompare(b.di)).forEach(g=>out.push(g.note?{note:g.note}:g));
+        m=mons.length?addDays(mons[mons.length-1],7):bEnd;
+      }
     }
   }finally{ state.indispos=state.indispos.filter(x=>!tmp.includes(x)); }
-  if(owed) out.push({note:`${owed} jour${owed>1?"s":""} off reste${owed>1?"nt":""} à placer après la période.`});
+  if(owed) out.push({note:`${owed} jour${owed>1?"s":""} reste${owed>1?"nt":""} à placer après la période.`});
   return out;
 }
 function fillOffSelect(){
   const sel=document.getElementById("oWho"), v=sel.value||"4";
-  sel.innerHTML=[1,2,3,4,5].filter(j=>RATE[j]===.8).map(j=>`<option value="${j}">${esc(nm(j))} (${QUOT[j]})</option>`).join(""); sel.value=v;
+  sel.innerHTML=[2,3,4,5].map(j=>`<option value="${j}">${esc(nm(j))} (${QUOT[j]})</option>`).join(""); sel.value=v;
   if(!document.getElementById("oFrom").value) document.getElementById("oFrom").value=iso(mondayOf(new Date()<parse(state.start)?parse(state.start):new Date()));
 }
+document.getElementById("oWho").onchange=e=>{document.getElementById("oMotif").value=RATE[+e.target.value]===.9?"Récupération":"Temps partiel"};
 document.getElementById("oGo").onclick=()=>{
-  const j=+document.getElementById("oWho").value, from=mondayOf(parse(document.getElementById("oFrom").value||state.start)), n=+document.getElementById("oWeeks").value;
-  offProposal=proposeOffDays(j,from,n);
+  const motif=document.getElementById("oMotif").value, j=+document.getElementById("oWho").value, from=mondayOf(parse(document.getElementById("oFrom").value||state.start)), n=+document.getElementById("oWeeks").value;
+  offProposal=proposeOffDays(j,from,n,motif);
   const rows=offProposal.map((p,i)=>p.di
-    ?`<tr><td><input type="checkbox" data-off="${i}" checked aria-label="Retenir ${fmtWd.format(parse(p.di))}"></td><td>${fmt.format(p.mon)}</td><td><strong>${fmtWd.format(parse(p.di))}</strong></td><td>${p.role==="REA"?"Réa (2e semaine)":"Endo"}</td><td>${p.newAl.length?`<span class="status todo">${esc(p.newAl.join(" "))}</span>`:`<span class="status ok">Aucune alerte</span> ${p.renfort?`compensé par ${esc(nm(7))}`:""}`}</td></tr>`
+    ?`<tr><td><input type="checkbox" data-off="${i}" checked aria-label="Retenir ${fmtWd.format(parse(p.di))}"></td><td>${p.mon?fmt.format(p.mon):""}</td><td><strong>${fmtWd.format(parse(p.di))}</strong></td><td>${p.role==="REA"?"Réa (2e semaine)":"Endo"}</td><td>${p.newAl.length?`<span class="status todo">${esc(p.newAl.join(" "))}</span>`:`<span class="status ok">Aucune alerte</span> ${p.renfort?`compensé par ${esc(nm(7))}`:""}`}</td></tr>`
     :`<tr><td></td><td>${p.mon?fmt.format(p.mon):""}</td><td colspan="3" style="color:var(--muted)">${esc(p.note)}</td></tr>`).join("");
   const nb=offProposal.filter(p=>p.di).length;
   document.getElementById("oList").innerHTML=`<table class="list"><thead><tr><th></th><th>Semaine</th><th>Jour off proposé</th><th>Poste ce jour-là</th><th>Impact</th></tr></thead><tbody>${rows}</tbody></table>`+
-    (nb?`<div class="row" style="margin-top:10px"><button class="btn" id="oAdd">Ajouter les jours cochés en « Temps partiel »</button></div>`:"");
+    (nb?`<div class="row" style="margin-top:10px"><button class="btn" id="oAdd">Ajouter les jours cochés en « ${esc(motif)} »</button></div>`:"");
   document.getElementById("oMsg").textContent="";
 };
 document.getElementById("oList").onclick=e=>{
   if(e.target.id!=="oAdd") return;
   const j=+document.getElementById("oWho").value; let n=0; const err=[];
   document.querySelectorAll("#oList input[data-off]:checked").forEach(cb=>{const p=offProposal[+cb.dataset.off];
-    const r=addIndispo(j,p.di,p.di,"Temps partiel","proposé automatiquement"); if(r.ok) n++; else err.push(r.msg)});
-  document.getElementById("oMsg").textContent=`${n} jour${n>1?"s":""} off ajouté${n>1?"s":""} pour ${nm(j)}.`+(err.length?" "+err.join(" "):"");
+    const r=addIndispo(j,p.di,p.di,document.getElementById("oMotif").value,"proposé automatiquement"); if(r.ok) n++; else err.push(r.msg)});
+  document.getElementById("oMsg").textContent=`${n} jour${n>1?"s":""} ajouté${n>1?"s":""} pour ${nm(j)} (${document.getElementById("oMotif").value}).`+(err.length?" "+err.join(" "):"");
   document.getElementById("oList").innerHTML=""; renderIndispo(); renderPlanning();
 };
 
@@ -1036,12 +1065,12 @@ function renderRules(){
       `En dernier recours, le MAR en 2e semaine de réa peut faire une consultation lib l'après-midi (le renfort prend sa place en réa s'il est libre, sinon la réa est à 2 l'après-midi) ; il assure le bloc qui suit la semaine suivante, en endoscopie.`]],
     ["Temps partiels",[
       `En journées entières uniquement : 0,9 = 2 jours off en cycle A et 3 en cycle B ; 0,8 = 5 jours off par cycle (quota annuel : 10 % ou 20 % des jours ouvrés).`,
-      `Les jours off ne sont pas placés automatiquement : ils se saisissent dans Indisponibilités avec le motif « Temps partiel ». Le compteur annuel suit le quota.`,
+      `Les jours off ne sont pas placés automatiquement : ils se saisissent dans Indisponibilités avec le motif « Temps partiel », ou sont proposés (jamais en semaine de réa). Le compteur annuel suit le quota.`,
       `Jamais un jour de consultation ou de bloc imposé.`]],
     ["Absences",[
       `Aucune absence pendant la 1re semaine de réa. Temps partiel, récupération, formation et autre y sont refusés.`,
       `Congé, garde ou maladie en 1re semaine de réa : le planning propose d'abord d'échanger la semaine 1 de l'absent avec la semaine 2 du MAR suivant (inversion du relais, sans déséquilibre). Sinon, un MAR en endoscopie fait la seule semaine 1 de l'absent (qui garde sa semaine 2), ou les 2 semaines si l'absence continue. Un rééquilibrage est ensuite proposé semaine par semaine dans les 3 mois.`,
-      `Équilibre de la réa vérifié sur 3 mois (13 semaines) : chaque MAR doit faire autant de semaines de réa que dans le cycle sans échange.`,
+      `Équilibre de la réa vérifié sur 3 mois (13 semaines), en jours de réa assurés, indépendamment du temps de travail : les jours off et de récupération des temps partiels sont proposés hors des semaines de réa.`,
       `Consultation lib impossible : un MAR du roulement en endoscopie ce jour-là et libre pour le bloc suivant est proposé. Les autres consultations sont à confier à un extérieur.`,
       `Une récupération s'ajoute ou se retire d'un clic sur la case du MAR dans Planning par MAR.`,
       `Bouton « Régénérer le planning » : après une mise à jour des indisponibilités, il retire les échanges devenus inutiles et applique toutes les propositions.`]],
