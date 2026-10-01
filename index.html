@@ -102,6 +102,10 @@ table.half td[data-j]:hover{background:#f0f6f6}
 .rules h3:first-child{margin-top:0}
 .rules ul{margin:0;padding-left:20px}
 .rules li{margin:4px 0;font-size:.9rem}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.tile{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.tile b{display:block;font-size:1.5rem;line-height:1.1}
+.tile span{font-size:.82rem;color:var(--muted)}
 .note{font-size:.85rem;color:var(--muted);margin:8px 0 0}
 #gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
 #gate form{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:28px 24px;width:100%;max-width:360px;text-align:center}
@@ -139,6 +143,7 @@ header{position:relative}
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning par MAR</button>
     <button role="tab" data-tab="poste" aria-selected="false">Planning par poste</button>
+    <button role="tab" data-tab="prat" aria-selected="false">Par praticien</button>
     <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
     <button role="tab" data-tab="params" aria-selected="false">Paramètres</button>
   </nav>
@@ -167,6 +172,19 @@ header{position:relative}
   <p class="note" id="planMsg" role="status" style="margin:-6px 0 12px;color:var(--accent);font-weight:700"></p>
   <details class="panel" id="balanceBox" style="padding:12px 16px"><summary style="cursor:pointer;font-weight:700">Équilibre de la réa sur 3 mois</summary><div class="scroll"><div id="balance"></div></div></details>
   <div id="weeks"></div>
+</section>
+
+<!-- RÉCAPITULATIF PAR PRATICIEN -->
+<section id="tab-prat" hidden>
+  <div class="toolbar">
+    <label>Praticien<select id="prWho"></select></label>
+    <label>À partir de la semaine du<input type="date" id="prFrom"></label>
+    <label>Nombre de semaines
+      <select id="prWeeks"><option>5</option><option selected>10</option><option>13</option><option>26</option><option>52</option></select>
+    </label>
+    <button class="btn ghost" id="prPrint" style="margin-top:18px">Imprimer</button>
+  </div>
+  <div id="prOut"></div>
 </section>
 
 <!-- INDISPONIBILITÉS -->
@@ -688,8 +706,53 @@ function renderPlanning(){
     html+=`</article>`;
   }
   document.getElementById("weeks").innerHTML=html||`<p class="empty">Aucune alerte sur la période affichée.</p>`;
+  if(!document.getElementById("tab-prat").hidden) renderPrat();
   document.getElementById("summary").innerHTML=nAl?`${nAl} alerte${nAl>1?"s":""}, dont <strong>${nCrit} critique${nCrit>1?"s":""}</strong>`:"Aucune alerte sur la période";
 }
+
+/* ---------- Récapitulatif par praticien ---------- */
+// Planning d'un MAR semaine par semaine (matin / après-midi) et totaux de la période, en demi-journées
+function fillPrat(){
+  const sel=document.getElementById("prWho"), v=sel.value||"1";
+  sel.innerHTML=[1,2,3,4,5,6,7,8].map(j=>`<option value="${j}">${esc(nm(j))} (${QUOT[j]})</option>`).join(""); sel.value=v;
+  if(!document.getElementById("prFrom").value) document.getElementById("prFrom").value=state.start;
+}
+function renderPrat(){
+  fillPrat();
+  const j=+document.getElementById("prWho").value, from=mondayOf(parse(document.getElementById("prFrom").value||state.start)), n=+document.getElementById("prWeeks").value;
+  const T={REA:0,ENDO:0,CONS:0,CONSX:0,BLOC:0}, abs={}, reaWeeks=[];
+  let rows="";
+  for(let i=0;i<n;i++){
+    const W=buildWeek(addDays(from,7*i)), r=rawRows(W.monday);
+    let tag="";
+    if(j<=5&&r.s[j][0]==="REA"){reaWeeks.push(W.monday); tag=r.first===j?"1re semaine de réa":"2e semaine de réa"}
+    rows+=`<tr><th scope="row">${fmt.format(W.monday)}<small style="display:block;color:var(--muted);font-weight:400">${W.cyc}${W.w}${tag?" · "+tag:""}</small></th>`;
+    W.days.forEach((D,d)=>{
+      const c=D.cell[j];
+      rows+=halfCells(c,d);
+      if(c.role==="INDISPO"||(!c.role&&c.ind)){abs[c.ind.motif]=(abs[c.ind.motif]||0)+1; return}
+      if(!c.role) return;
+      HALF[libRole(c.role,d)].forEach(h=>{const k=h==="REA_R"?"REA":h==="RENFORT"?"ENDO":h; if(k in T) T[k]++});
+    });
+    rows+=`</tr>`;
+  }
+  const tile=(v,l)=>`<div class="tile"><b>${v}</b><span>${l}</span></div>`;
+  const nAbs=Object.values(abs).reduce((a,b)=>a+b,0);
+  document.getElementById("prOut").innerHTML=
+    `<div class="panel"><h2 style="margin-bottom:4px">${esc(nm(j))} <span class="chip">${QUOT[j]}</span></h2>
+     <p class="note" style="margin:0 0 14px">Du ${fmtLong.format(from)} au ${fmtLong.format(addDays(from,7*n-3))} (${n} semaines). Totaux en demi-journées, absences en jours.</p>
+     <div class="tiles">`+
+      (j<=5?tile(reaWeeks.length,"semaines de réa"):"")+
+      tile(T.REA,"demi-journées de réa")+tile(T.ENDO,"demi-journées d'endoscopie")+tile(T.CONS,"consultations")+
+      tile(T.CONSX,"consultations lib")+tile(T.BLOC,"blocs")+tile(nAbs,"jours d'absence")+
+    `</div>`+
+    (nAbs?`<p class="note" style="margin:0">Absences : ${Object.entries(abs).map(([m,v])=>`${esc(m)} ${v} j`).join(", ")}.</p>`:"")+`</div>`+
+    `<article class="week"><div class="scroll"><table class="half"><thead><tr><th scope="col" rowspan="2">Semaine</th>`+
+      DAYS.map(x=>`<th scope="colgroup" colspan="2" class="d0">${x}</th>`).join("")+`</tr><tr>`+DAYS.map(()=>`<th scope="col" class="d0">Matin</th><th scope="col">Ap-m</th>`).join("")+
+    `</tr></thead><tbody>${rows}</tbody></table></div></article>`;
+}
+["prWho","prFrom","prWeeks"].forEach(id=>document.getElementById(id).onchange=renderPrat);
+document.getElementById("prPrint").onclick=()=>window.print();
 
 /* ---------- CSV ---------- */
 document.getElementById("csvBtn").onclick=()=>{
@@ -932,7 +995,7 @@ document.getElementById("pStart").onchange=e=>{
   document.getElementById("pMsg").textContent=`Semaine 1 du cycle fixée au lundi ${fmtLong.format(mon)}.`;
   document.getElementById("viewFrom").value=state.start; save(); renderPlanning();};
 document.getElementById("pNames").oninput=e=>{const j=e.target.dataset.name; if(!j) return;
-  state.names[j]=e.target.value.trim()||DEFAULT_NAMES[j]; save(); renderRules(); fillOffSelect(); fillSelects(); renderIndispo(); renderPlanning();};
+  state.names[j]=e.target.value.trim()||DEFAULT_NAMES[j]; save(); renderRules(); fillOffSelect(); fillPrat(); fillSelects(); renderIndispo(); renderPlanning();};
 document.getElementById("expBtn").onclick=()=>{
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:"application/json"}));
   a.download=`planning-mar-${iso(new Date())}.json`; a.click();};
@@ -951,6 +1014,7 @@ let planView="mar";
 document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) return;
   document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
   const sec=t==="poste"?"planning":t;
+  if(t==="prat") renderPrat();
   document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+sec);
   if(sec==="planning"){planView=t==="poste"?"poste":"mar"; renderPlanning()}};
 ["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
