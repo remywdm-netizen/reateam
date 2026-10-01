@@ -680,17 +680,20 @@ function recapTable(W){
   return h+`</tbody></table></div>`;
 }
 // Semaines de réa par MAR sur les 13 semaines affichées, comparées au cycle sans échange
-// Jours de réa effectivement assurés par MAR sur les 13 semaines affichées (absences déduites), comparés au cycle
-// sans échange ni absence (semaines de réa × 5) : l'équilibre ne dépend pas du temps de travail
+// Jours de réa par MAR sur les 13 semaines affichées, comparés au cycle sans échange (semaines de réa × 5).
+// Indépendant du temps de travail : un jour off de temps partiel ou de récupération pris en réa compte comme un jour de réa ;
+// les autres absences (congé, maladie…) sont déduites.
+const WORKTIME=["Temps partiel","Récupération"];
 function renderBalance(from){
   const n={1:0,2:0,3:0,4:0,5:0}, ref={1:0,2:0,3:0,4:0,5:0}, lost={1:0,2:0,3:0,4:0,5:0};
   for(let i=0;i<QUARTER;i++){const m=addDays(from,7*i), W=buildWeek(m), b=baseWeek(cycleWeek(m)).s;
     for(let j=1;j<=5;j++){ if(b[j][0]==="REA") ref[j]+=5;
-      W.days.forEach(D=>{const c=D.cell[j]; if(c.role==="REA"||c.role==="REA_CONS") n[j]++; else if(c.role==="INDISPO"&&(c.plan==="REA"||c.plan==="REA_CONS")) lost[j]++})}}
+      W.days.forEach(D=>{const c=D.cell[j]; if(c.role==="REA"||c.role==="REA_CONS") n[j]++;
+        else if(c.role==="INDISPO"&&(c.plan==="REA"||c.plan==="REA_CONS")){ if(WORKTIME.includes(c.ind.motif)) n[j]++; else lost[j]++ }})}}
   const end=addDays(from,7*QUARTER-3), off=[1,2,3,4,5].filter(j=>n[j]!==ref[j]);
   document.querySelector("#balanceBox summary").innerHTML=`Équilibre de la réa sur 3 mois `+(off.length?`<span class="status todo">à rééquilibrer : ${off.map(nm).join(", ")}</span>`:`<span class="status ok">équilibré</span>`);
-  document.getElementById("balance").innerHTML=`<p class="note" style="margin:8px 0">Du ${fmtLong.format(from)} au ${fmtLong.format(end)} (13 semaines). Jours de réa assurés, absences déduites, comparés au cycle sans échange : chaque écart doit être nul, quel que soit le temps de travail.</p>`+
-    `<table class="list"><thead><tr><th>MAR</th><th class="num">Jours de réa</th><th class="num">Selon le cycle</th><th class="num">Dont absences en réa</th><th class="num">Écart</th></tr></thead><tbody>`+
+  document.getElementById("balance").innerHTML=`<p class="note" style="margin:8px 0">Du ${fmtLong.format(from)} au ${fmtLong.format(end)} (13 semaines). Jours de réa comparés au cycle sans échange, indépendamment du temps de travail : les jours de temps partiel ou de récupération pris en réa comptent comme des jours de réa, les autres absences sont déduites. Chaque écart doit être nul.</p>`+
+    `<table class="list"><thead><tr><th>MAR</th><th class="num">Jours de réa</th><th class="num">Selon le cycle</th><th class="num">Absences déduites</th><th class="num">Écart</th></tr></thead><tbody>`+
     [1,2,3,4,5].map(j=>{const e=n[j]-ref[j];return `<tr><td><strong>${esc(nm(j))}</strong> <span class="chip">${QUOT[j]}</span></td><td class="num">${n[j]}</td><td class="num">${ref[j]}</td><td class="num">${lost[j]||""}</td><td class="num${e?" over":""}">${e>0?"+":""}${e}</td></tr>`}).join("")+`</tbody></table>`;
 }
 let lastWeeks=[];
@@ -964,17 +967,16 @@ const fmtWd=new Intl.DateTimeFormat("fr-FR",{weekday:"long",day:"numeric",month:
 let offProposal=[];
 // Période de 5 semaines (moitié A ou B du cycle) contenant ce lundi
 function blockOf(monday){const w=cycleWeek(monday);return {start:iso(addDays(mondayOf(monday),-7*((w-1)%5))),cyc:w<=5?"A":"B"}}
-const inReaWeek=(j,mon)=>rawRows(mon).s[j][0]==="REA";
 // Meilleur jour pour le MAR j parmi les semaines mons : simulation de l'absence, coût = alertes ajoutées,
 // + 5 par jour déjà retenu la même semaine (pour répartir les jours)
 function bestOffDay(j,mons,motif,perWeek){
   let best=null;
   for(const mon of mons){
-    if(inReaWeek(j,mon)) continue;   // jamais pendant la réa : les jours de réa restent égaux quel que soit le temps de travail
+    if(firstRea(mon)===j) continue;   // jamais en 1re semaine de réa ; la 2e semaine de réa est possible
     const W0=buildWeek(mon), base=weekCost(W0);
     W0.days.forEach((D,d)=>{
       const c=D.cell[j];
-      if(c.ind||c.role!=="ENDO") return;
+      if(c.ind||!(c.role==="ENDO"||c.role==="REA")) return;
       state.indispos.push({id:"tmp",who:j,from:D.di,to:D.di,motif,note:""}); const W=buildWeek(mon); state.indispos.pop();
       const cost=weekCost(W)-base+5*(perWeek[iso(mon)]||0), newAl=W.alerts.filter(a=>a[0]!=="info"&&!W0.alerts.some(x=>x[1]===a[1])).map(a=>a[1]);
       if(!best||cost<best.cost) best={mon,d,di:D.di,role:c.role,cost,newAl,renfort:W.days[d].cell[7].role};
@@ -992,7 +994,7 @@ function proposeOffDays(j,from,n,motif){
       for(let i=0;i<n;i++){
         const mon=addDays(from,7*i), mi=iso(mon), fri=iso(addDays(mon,4));
         if(countIn(j,motif,mi,fri)){out.push({mon,note:"Jour déjà saisi cette semaine."});continue}
-        if(inReaWeek(j,mon)){owed++;out.push({mon,note:"Semaine de réa : aucun jour off, reporté à une semaine d'endoscopie."});continue}
+        if(firstRea(mon)===j){owed++;out.push({mon,note:"1re semaine de réa : aucun jour possible, reporté à la semaine suivante."});continue}
         let want=Math.min(2,1+owed), got=0;   // au plus 2 jours par semaine, le reste est reporté
         while(want-->0){const b=bestOffDay(j,[mon],motif,{}); if(!b) break; keep(b); out.push(b); got++}
         owed=Math.max(0,1+owed-got);
@@ -1065,12 +1067,12 @@ function renderRules(){
       `En dernier recours, le MAR en 2e semaine de réa peut faire une consultation lib l'après-midi (le renfort prend sa place en réa s'il est libre, sinon la réa est à 2 l'après-midi) ; il assure le bloc qui suit la semaine suivante, en endoscopie.`]],
     ["Temps partiels",[
       `En journées entières uniquement : 0,9 = 2 jours off en cycle A et 3 en cycle B ; 0,8 = 5 jours off par cycle (quota annuel : 10 % ou 20 % des jours ouvrés).`,
-      `Les jours off ne sont pas placés automatiquement : ils se saisissent dans Indisponibilités avec le motif « Temps partiel », ou sont proposés (jamais en semaine de réa). Le compteur annuel suit le quota.`,
+      `Les jours off ne sont pas placés automatiquement : ils se saisissent dans Indisponibilités avec le motif « Temps partiel », ou sont proposés (en endoscopie ou en 2e semaine de réa, jamais en 1re). Le compteur annuel suit le quota.`,
       `Jamais un jour de consultation ou de bloc imposé.`]],
     ["Absences",[
       `Aucune absence pendant la 1re semaine de réa. Temps partiel, récupération, formation et autre y sont refusés.`,
       `Congé, garde ou maladie en 1re semaine de réa : le planning propose d'abord d'échanger la semaine 1 de l'absent avec la semaine 2 du MAR suivant (inversion du relais, sans déséquilibre). Sinon, un MAR en endoscopie fait la seule semaine 1 de l'absent (qui garde sa semaine 2), ou les 2 semaines si l'absence continue. Un rééquilibrage est ensuite proposé semaine par semaine dans les 3 mois.`,
-      `Équilibre de la réa vérifié sur 3 mois (13 semaines), en jours de réa assurés, indépendamment du temps de travail : les jours off et de récupération des temps partiels sont proposés hors des semaines de réa.`,
+      `Équilibre de la réa vérifié sur 3 mois (13 semaines), en jours de réa, indépendamment du temps de travail : un jour off de temps partiel ou de récupération pris en 2e semaine de réa ne compte pas comme un manque.`,
       `Consultation lib impossible : un MAR du roulement en endoscopie ce jour-là et libre pour le bloc suivant est proposé. Les autres consultations sont à confier à un extérieur.`,
       `Une récupération s'ajoute ou se retire d'un clic sur la case du MAR dans Planning par MAR.`,
       `Bouton « Régénérer le planning » : après une mise à jour des indisponibilités, il retire les échanges devenus inutiles et applique toutes les propositions.`]],
