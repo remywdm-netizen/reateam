@@ -113,7 +113,7 @@ header{position:relative}
 <header>
   <button class="btn small logout" id="logoutBtn">Se déconnecter</button>
   <h1>Planning MAR · Réa / Endoscopie</h1>
-  <p>Cycle de 10 semaines : réa à 3 (2 MAR du roulement + 1 extérieur), endoscopie à 3, consultations et temps partiels intégrés.</p>
+  <p>Cycle de 10 semaines : réa à 3 (2 MAR du roulement + 1 extérieur), endoscopie à 3, consultations intégrées. Les jours off des temps partiels se saisissent dans les indisponibilités.</p>
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
     <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
@@ -151,7 +151,7 @@ header{position:relative}
       <label>Du<input type="date" id="iFrom"></label>
       <label>Au<input type="date" id="iTo"></label>
       <label>Motif
-        <select id="iMotif"><option>Congé</option><option>Formation</option><option>Maladie</option><option>Récupération</option><option>Garde</option><option>Autre</option></select>
+        <select id="iMotif"><option>Temps partiel</option><option>Congé</option><option>Formation</option><option>Maladie</option><option>Récupération</option><option>Garde</option><option>Autre</option></select>
       </label>
       <label>Commentaire<input type="text" id="iNote" placeholder="facultatif"></label>
       <button class="btn" id="iAdd">Ajouter</button>
@@ -226,9 +226,6 @@ const QUOT={1:"100 %",2:"90 %",3:"90 %",4:"80 %",5:"80 %",6:"Réa fixe",7:"Renfo
 const DEFAULT_NAMES={1:"CS",2:"RW",3:"SG",4:"MS",5:"JC",6:"Extérieur réa",7:"Extérieur renfort"};
 const LABEL={REA:"Réa",ENDO:"Endo",CONS:"Endo + consult.",CONSX:"Endo + consult. *",BLOC:"Endo + bloc ap-m",OFF:"Off temps partiel",RENFORT:"Endo (renfort)",REA_R:"Réa (renfort)",INDISPO:"Indisponible"};
 const CONS_NEEDED=[2,1,1,2,0];
-// jours off des temps partiels : [semaine du cycle 1-5, jour 0-4]
-const OFF_A={2:[[2,2],[5,4]],3:[[3,2],[1,4]],4:[[4,2],[4,4],[5,3],[1,1],[2,4]],5:[[5,1],[5,2],[1,3],[2,1],[3,4]]};
-const OFF_B={2:[[3,3]],3:[[4,3]]};
 const m5=x=>((x-1)%5+5)%5+1;
 
 /* ---------- État ---------- */
@@ -257,8 +254,6 @@ function baseWeek(w){ // w = 1..10
   s[m5(k+4)]=["CONS","CONS","ENDO","ENDO","ENDO"];   // sortie de réa
   s[6]=Array(5).fill("REA");                          // MAR extérieur fixe en réa
   s[7]=Array(5).fill("");
-  const add=(o)=>{for(const j in o)for(const [wk,d] of o[j]) if(wk===k){ if(!["REA","ENDO"].includes(s[j][d])) console.error("conflit off",w,j,d); s[j][d]="OFF"}};
-  add(OFF_A); if(cyc==="B") add(OFF_B);
   return {k,cyc,s};
 }
 function cycleWeek(monday){
@@ -319,7 +314,7 @@ function tag(c){
   return `<span class="tag t-${cls}">${LABEL[c.role]}</span>`;
 }
 function renderLegend(){
-  document.getElementById("legend").innerHTML=Object.entries({REA:"t-REA",ENDO:"t-ENDO",CONS:"t-CONS",CONSX:"t-CONSX",BLOC:"t-BLOC",OFF:"t-OFF",RENFORT:"t-RENFORT",REA_R:"t-REA_R",INDISPO:"t-INDISPO"})
+  document.getElementById("legend").innerHTML=Object.entries({REA:"t-REA",ENDO:"t-ENDO",CONS:"t-CONS",CONSX:"t-CONSX",BLOC:"t-BLOC",RENFORT:"t-RENFORT",REA_R:"t-REA_R",INDISPO:"t-INDISPO"})
    .map(([k,c])=>`<span class="${c}">${LABEL[k]}</span>`).join("")+`<span style="color:var(--muted)">* consultant du jeudi : bloc le mardi ap-m suivant</span>`;
 }
 let lastWeeks=[];

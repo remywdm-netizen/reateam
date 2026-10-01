@@ -10,7 +10,7 @@ Application web (un seul fichier `index.html`, sans serveur) pour le roulement d
 - Consultations l'après-midi : lundi ×2, mardi ×1, mercredi ×1, jeudi ×2.
 - Consultant du mardi : bloc le lundi après-midi suivant. Consultant du jeudi (*) : bloc le mardi après-midi suivant.
 - MAR : CS (100 %), RW et SG (90 %), MS et JC (80 %), Extérieur réa (fixe en réa), Extérieur renfort (ajouté automatiquement en réa ou en endoscopie quand un poste manque, la réa en priorité).
-- Temps partiels en journées entières : 0,9 = 2 jours off en cycle A, 3 en cycle B ; 0,8 = 5 jours off par cycle. Les jours off sont posés sur la 2e semaine de réa (compensés par l'extérieur renfort) et sur des jours d'endoscopie sans consultation ni bloc imposé.
+- Temps partiels (0,9 : 2 jours off en cycle A, 3 en cycle B ; 0,8 : 5 jours off par cycle) : les jours off ne sont pas placés automatiquement. Chaque MAR les saisit dans **Indisponibilités** avec le motif « Temps partiel ». Le planning signale alors le poste à compenser (renfort extérieur, consultation ou bloc à réattribuer).
 
 ## Code d'accès
 
