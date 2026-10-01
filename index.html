@@ -80,6 +80,8 @@ td.crit{color:var(--crit);font-weight:700}
 .empty{color:var(--muted);font-style:italic;padding:12px 0}
 .people{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
 .chip{display:inline-block;padding:2px 8px;border-radius:10px;background:var(--accent-soft);font-size:.8rem;margin-left:6px}
+td.over{color:var(--crit);font-weight:700}
+td.num,th.num{text-align:right}
 .note{font-size:.85rem;color:var(--muted);margin:8px 0 0}
 #gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
 #gate form{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:28px 24px;width:100%;max-width:360px;text-align:center}
@@ -166,6 +168,16 @@ header{position:relative}
       </label>
     </div>
     <div class="scroll"><div id="iList"></div></div>
+  </div>
+  <div class="panel">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0">Compteur annuel</h2>
+      <label style="flex-direction:row;align-items:center;gap:6px">Année
+        <select id="cYear"></select>
+      </label>
+    </div>
+    <div class="scroll"><div id="cTable"></div></div>
+    <p class="note">Jours ouvrés (lundi au vendredi) saisis par motif. Le quota de temps partiel est calculé au prorata des jours ouvrés de l'année : 10 % pour 0,9 (soit 2 jours en cycle A et 3 en cycle B), 20 % pour 0,8 (soit 5 jours par cycle). Les jours fériés ne sont pas déduits.</p>
   </div>
 </section>
 
@@ -364,7 +376,36 @@ function fillSelects(){
   const f=document.getElementById("iFilter"), v=f.value;
   f.innerHTML=`<option value="">Tous les MAR</option>`+opts; f.value=v;
 }
+/* ---------- Compteur annuel ---------- */
+const RATE={1:1,2:.9,3:.9,4:.8,5:.8};
+function fillYears(){
+  const sel=document.getElementById("cYear"), v=sel.value, now=new Date().getFullYear(), ys=new Set([now-1,now,now+1]);
+  state.indispos.forEach(i=>{ys.add(+i.from.slice(0,4));ys.add(+i.to.slice(0,4))});
+  sel.innerHTML=[...ys].sort().map(y=>`<option>${y}</option>`).join(""); sel.value=v||now;
+}
+function renderCounter(){
+  fillYears();
+  const y=document.getElementById("cYear").value, a=y+"-01-01", b=y+"-12-31", total=workdays(a,b);
+  const motifs=[...document.getElementById("iMotif").options].map(o=>o.value);
+  // jours ouvrés distincts par MAR et par motif, limités à l'année choisie
+  const days=j=>{const m={};motifs.forEach(x=>m[x]=new Set());
+    state.indispos.filter(i=>+i.who===j&&i.from<=b&&i.to>=a).forEach(i=>{
+      for(let d=parse(i.from<a?a:i.from);iso(d)<=(i.to>b?b:i.to);d=addDays(d,1)){const g=d.getDay();if(g&&g<6)(m[i.motif]||(m[i.motif]=new Set())).add(iso(d))}});
+    return m};
+  let h=`<table class="list"><thead><tr><th>MAR</th><th class="num">Temps partiel posés</th><th class="num">Quota annuel</th><th class="num">Reste à poser</th>`+
+    motifs.slice(1).map(x=>`<th class="num">${esc(x)}</th>`).join("")+`</tr></thead><tbody>`;
+  for(let j=1;j<=7;j++){
+    const m=days(j), tp=m["Temps partiel"].size, q=Math.round(total*(1-(RATE[j]||1))), partiel=RATE[j]&&RATE[j]<1;
+    h+=`<tr><td><strong>${esc(nm(j))}</strong> <span class="chip">${QUOT[j]}</span></td>`+
+      (partiel?`<td class="num${tp>q?" over":""}">${tp}</td><td class="num">${q}</td><td class="num${tp>q?" over":""}">${q-tp}</td>`:`<td class="num">${tp||"—"}</td><td class="num">—</td><td class="num">—</td>`)+
+      motifs.slice(1).map(x=>`<td class="num">${m[x].size||""}</td>`).join("")+`</tr>`;
+  }
+  document.getElementById("cTable").innerHTML=h+`</tbody></table>`;
+}
+document.getElementById("cYear").onchange=renderCounter;
+
 function renderIndispo(){
+  renderCounter();
   const f=document.getElementById("iFilter").value;
   const list=state.indispos.filter(i=>!f||i.who==f).sort((a,b)=>a.from.localeCompare(b.from));
   if(!list.length){document.getElementById("iList").innerHTML=`<p class="empty">Aucune indisponibilité saisie. Utilisez le formulaire ci-dessus pour en ajouter une.</p>`;return}
