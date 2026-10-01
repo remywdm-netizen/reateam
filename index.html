@@ -443,7 +443,7 @@ const QUARTER=13;
 const isFreeWeeks=list=>!state.reaSwaps.some(z=>touched(z).some(t=>list.includes(t)));
 const absDaysIn=(j,m)=>[0,1,2,3,4].filter(d=>indispoOn(j,iso(addDays(m,d)))).length;
 function proposeCompensation(sw){
-  if(sw.comp||sw.kind==="relay"||sw.b===PREF_REA) return null;   // pas de rééquilibrage qui retirerait la réa au MAR privilégié
+  if(sw.comp||sw.kind==="relay") return null;
   const comps=state.reaSwaps.filter(z=>z.comp===sw.id), total=sw.kind==="swap"?2:1;
   if(comps.length>=total) return {done:true,comps,total};
   const inRea=(j,m)=>rawRows(m).s[j][0]==="REA", opts=[];
@@ -463,16 +463,11 @@ function proposeCompensation(sw){
 //     d'absence de X ; un rééquilibrage est proposé ensuite.
 // Un MAR qui doit un bloc (après une consultation lib reprise) pendant ces semaines ne peut pas passer en réa
 const owesBloc=(j,mondays)=>state.swaps.some(x=>x.to===j&&x.blocDate&&mondays.includes(iso(mondayOf(parse(x.blocDate)))));
-// MAR dont la présence en réa est privilégiée quand il est disponible
-const PREF_REA=5;
 function proposeReaSwap(monday,x,k){
   const mi=iso(monday), m1=addDays(monday,7), m2=addDays(monday,14);
   const z=baseWeek(cycleWeek(monday)).next;
   const relay=z!==x&&isFreeWeeks([mi,iso(m1),iso(m2)])&&!absDaysIn(z,monday)&&!absDaysIn(x,m1)&&!owesBloc(z,[mi])&&!owesBloc(x,[iso(m1),iso(m2)])?{monday:mi,a:x,b:z,kind:"relay"}:null;
-  if(relay&&z===PREF_REA) return relay;
-  const sw=proposeReaSwapTo(monday,x);
-  if(sw&&sw.b===PREF_REA) return sw;
-  return relay||sw;
+  return relay||proposeReaSwapTo(monday,x);
 }
 function proposeReaSwapTo(monday,x){
   const mi=iso(monday), m1=addDays(monday,7);
@@ -484,7 +479,7 @@ function proposeReaSwapTo(monday,x){
   // candidats : MAR du roulement en endoscopie la (ou les) semaine(s) concernée(s)
   const cand=[1,2,3,4,5].filter(y=>y!==x&&s1[y][0]!=="REA"&&(one||s2[y][0]!=="REA")&&!absDaysIn(y,monday)&&!owesBloc(y,weeks))
     .map(y=>({y,conf:days.filter(([dt,s,d])=>indispoOn(x,iso(dt))&&busy(s[y][d])).length,abs:days.filter(([dt])=>indispoOn(y,iso(dt))).length}))
-    .sort((a,b)=>(b.y===PREF_REA)-(a.y===PREF_REA)||a.conf-b.conf||a.abs-b.abs||a.y-b.y);
+    .sort((a,b)=>a.conf-b.conf||a.abs-b.abs||a.y-b.y);
   return cand.length?{monday:mi,a:x,b:cand[0].y,kind:one?"week":"swap"}:null;
 }
 
@@ -619,8 +614,8 @@ function buildWeek(monday){
     let t=`${nm(first)} est en 1re semaine de réa, où aucune absence n'est possible (${motifs} : ${jours}).`;
     const alt=proposeReaSwap(monday,first,k);
     if(alt&&alt.kind==="relay") alerts.unshift(["warn",t+` Proposition : échanger la semaine 1 de ${nm(alt.a)} avec la semaine 2 de ${nm(alt.b)}. ${nm(alt.b)} entre en réa dès cette semaine (semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))}), et ${nm(alt.a)} entre la semaine suivante (semaines du ${fmt.format(addDays(monday,7))} et du ${fmt.format(addDays(monday,14))}). Chacun garde 2 semaines de réa.`,{reaSwap:alt}]);
-    else if(alt&&alt.kind==="week") alerts.unshift(["warn",t+` Proposition : ${nm(alt.b)} fait la réa la semaine du ${fmt.format(monday)} à la place de ${nm(alt.a)}, qui reprend son planning d'endoscopie cette semaine-là et garde sa semaine de réa du ${fmt.format(addDays(monday,7))}.`+(alt.b===PREF_REA?"":" Une semaine de rééquilibrage sera proposée ensuite."),{reaSwap:alt}]);
-    else if(alt) alerts.unshift(["warn",t+` Proposition : échanger ${nm(alt.a)} et ${nm(alt.b)} pour les semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))} : ${nm(alt.b)} fait les deux semaines de réa et ${nm(alt.a)} reprend son planning d'endoscopie.`+(alt.b===PREF_REA?"":" Un rééquilibrage sera proposé ensuite."),{reaSwap:alt}]);
+    else if(alt&&alt.kind==="week") alerts.unshift(["warn",t+` Proposition : ${nm(alt.b)} fait la réa la semaine du ${fmt.format(monday)} à la place de ${nm(alt.a)}, qui reprend son planning d'endoscopie cette semaine-là et garde sa semaine de réa du ${fmt.format(addDays(monday,7))}. Une semaine de rééquilibrage sera proposée ensuite.`,{reaSwap:alt}]);
+    else if(alt) alerts.unshift(["warn",t+` Proposition : échanger ${nm(alt.a)} et ${nm(alt.b)} pour les semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))} : ${nm(alt.b)} fait les deux semaines de réa et ${nm(alt.a)} reprend son planning d'endoscopie. Un rééquilibrage sera proposé ensuite.`,{reaSwap:alt}]);
     else alerts.unshift(["crit",t+(isFreeWeeks([iso(monday)])?` Pas d'échange possible (aucun MAR en endoscopie n'est disponible toute cette semaine). Déplacez cette absence.`:` Pas d'échange possible : un autre échange de réa porte déjà sur cette semaine. Annulez-le ou déplacez cette absence.`)]);
   }
   if(applied){
