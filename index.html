@@ -548,6 +548,24 @@ function applyAfr(cell,di){
   }
 }
 
+/* ---------- Comparaison des deux possibilités (MAR en 2e semaine de réa / AFR) ---------- */
+// Chaque possibilité est simulée sur la semaine de la consultation et celle du bloc ; on compte les alertes qu'elle
+// laisse (critique 100, à vérifier 10) et on recommande la moins lourde (à égalité, le MAR du roulement).
+let SIM=false;
+function compareOptions(alt,fa){
+  if(SIM) return null;
+  const weeks=[mondayOf(parse(alt.date)),mondayOf(parse(alt.blocDate))].filter((m,i,a)=>i===0||iso(m)!==iso(a[0]));
+  const score=()=>{let cost=0,list=[];for(const m of weeks){const W=buildWeek(m);W.alerts.forEach(a=>{if(a[0]==="info"||/impossible|à déplacer/.test(a[1]))return;cost+=a[0]==="crit"?100:10;list.push(a[1])})}return {cost,n:list.length}};
+  SIM=true;
+  try{
+    state.swaps.push({...alt,id:"sim"}); const a=score(); state.swaps.pop();
+    state.afr.push({...fa.afr,id:"sim"}); const b=score(); state.afr.pop();
+    const best=b.cost<a.cost?"afr":"swap";
+    const n=x=>x.n?`${x.n} alerte${x.n>1?"s":""}${x.cost>=100?" dont critique":""}`:"aucune alerte";
+    return {best,txt:` Conséquences : 1) ${n(a)} ; 2) ${n(b)}. Recommandé : ${best==="afr"?"2) "+nm(8):"1) "+nm(alt.to)}.`};
+  }finally{SIM=false}
+}
+
 /* ---------- Calcul d'une semaine réelle ---------- */
 function buildWeek(monday){
   const w=cycleWeek(monday), {k,cyc,s,first,applied,breaks,ext}=weekRows(monday);
@@ -587,7 +605,8 @@ function buildWeek(monday){
           const alt=proposeAlt(j,c.role,d,date,s,cell);
           let t=`${dl} ap-m : consultation lib de ${nm(j)} à déplacer, car ${nm(j)} est indisponible le jour du bloc qui suit (${fmtDay.format(parse(bdi))} ap-m, ${ab.motif}).`;
           const fa2=alt&&alt.rea?afrLib(cell,c.role,j,bdi,di):null;
-          if(alt) alerts.push(["warn",t+(fa2?` Deux possibilités : 1) `:` Proposition : `)+`${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""} assure la consultation lib puis ce bloc`+(alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur`:"")+(fa2?` ; 2) ${nm(8)} assure la consultation lib puis ce bloc.`:"."),{swap:alt,...(fa2||{})}]);
+          const cmp=fa2?compareOptions(alt,fa2):null;
+          if(alt) alerts.push(["warn",t+(fa2?` Deux possibilités : 1) `:` Proposition : `)+`${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""} assure la consultation lib puis ce bloc`+(alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur`:"")+(fa2?` ; 2) ${nm(8)} assure la consultation lib puis ce bloc.`+(cmp?cmp.txt:""):"."),{swap:alt,...(fa2||{}),best:cmp&&cmp.best}]);
           else{const fa=afrLib(cell,c.role,j,bdi,di); alerts.push(["crit",t+(fa?` Aucun MAR du roulement n'est libre. Proposition : ${nm(8)} assure la consultation lib puis ce bloc.`:` Pas d'alternative automatique : aucun MAR en endoscopie ce jour-là n'est libre pour ce bloc.`),fa]);}
         }
       }
@@ -600,8 +619,9 @@ function buildWeek(monday){
           t+=` Proposition : ${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""} assure la consultation lib puis le bloc du ${fmtDay.format(parse(alt.blocDate))} ap-m à la place de ${nm(j)}`+
             (alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur.`:".");
           const fa2=alt.rea?afrLib(cell,c.plan,j,alt.blocDate,di):null;
-          if(fa2) t=t.replace(" Proposition : "," Deux possibilités : 1) ").replace(/\.$/,"")+` ; 2) ${nm(8)} assure la consultation lib puis ce bloc.`;
-          alerts.push(["warn",t,{swap:alt,...(fa2||{})}]);
+          const cmp=fa2?compareOptions(alt,fa2):null;
+          if(fa2) t=t.replace(" Proposition : "," Deux possibilités : 1) ").replace(/\.$/,"")+` ; 2) ${nm(8)} assure la consultation lib puis ce bloc.`+(cmp?cmp.txt:"");
+          alerts.push(["warn",t,{swap:alt,...(fa2||{}),best:cmp&&cmp.best}]);
         }else{
           const fa=afrLib(cell,c.plan,j,iso(addDays(date,d===1?6:5)),di);
           alerts.push(["crit",t+(fa?` Aucun MAR du roulement n'est libre. Proposition : ${nm(8)} assure la consultation lib puis le bloc du ${fmtDay.format(addDays(date,d===1?6:5))} ap-m.`:` Pas d'alternative automatique : aucun MAR en endoscopie ce jour-là n'est libre pour le bloc de la semaine suivante. Déplacez une indisponibilité ou réattribuez manuellement.`),fa]);
@@ -786,9 +806,9 @@ function renderPlanning(){
       html+=recapTable(W);
     }
     if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1].replace(/\.\.(\s|$)/g,".$1"))}`+
-      (a[2]&&a[2].swap?` <button class="btn small" data-swap='${esc(JSON.stringify(a[2].swap))}'>Appliquer${a[2].afr?" : "+esc(nm(a[2].swap.to)):""}</button>`:"")+
+      (a[2]&&a[2].swap?` <button class="btn small${a[2].afr&&a[2].best==="afr"?" ghost":""}" data-swap='${esc(JSON.stringify(a[2].swap))}'>Appliquer${a[2].afr?" : "+esc(nm(a[2].swap.to))+(a[2].best==="swap"?" (recommandé)":""):""}</button>`:"")+
       (a[2]&&a[2].unswap?` <button class="btn small ghost" data-unswap="${a[2].unswap}">Annuler</button>`:"")+
-      (a[2]&&a[2].afr?` <button class="btn small${a[2].swap?" ghost":""}" data-afr='${esc(JSON.stringify(a[2].afr))}'>Appliquer${a[2].swap?" : "+esc(nm(8)):""}</button>`:"")+
+      (a[2]&&a[2].afr?` <button class="btn small${a[2].swap&&a[2].best!=="afr"?" ghost":""}" data-afr='${esc(JSON.stringify(a[2].afr))}'>Appliquer${a[2].swap?" : "+esc(nm(8))+(a[2].best==="afr"?" (recommandé)":""):""}</button>`:"")+
       (a[2]&&a[2].unafr?` <button class="btn small ghost" data-unafr="${a[2].unafr}">Annuler</button>`:"")+
       (a[2]&&a[2].reaSwap?` <button class="btn small" data-reaswap='${esc(JSON.stringify(a[2].reaSwap))}'>Appliquer</button>`:"")+
       (a[2]&&a[2].unReaSwap?` <button class="btn small ghost" data-unreaswap="${a[2].unReaSwap}">Annuler</button>`:"")+`</li>`).join("")+`</ul>`;
@@ -1139,7 +1159,7 @@ function renderRules(){
       `Aucune absence pendant la 1re semaine de réa. Temps partiel, récupération, formation et autre y sont refusés.`,
       `Congé, garde ou maladie en 1re semaine de réa : le planning propose d'abord d'échanger la semaine 1 de l'absent avec la semaine 2 du MAR suivant (inversion du relais, sans déséquilibre). Sinon, un MAR en endoscopie fait la seule semaine 1 de l'absent (qui garde sa semaine 2), ou les 2 semaines si l'absence continue. Un rééquilibrage est ensuite proposé semaine par semaine dans les 3 mois.`,
       `Équilibre vérifié sur 3 mois (13 semaines) en décomptant uniquement les 1res semaines de réa et les consultations lib de chaque MAR, indépendamment du temps de travail. Après un échange, le rééquilibrage rend une 1re semaine de réa.`,
-      `Consultation lib impossible : un MAR du roulement en endoscopie ce jour-là et libre pour le bloc suivant est proposé. Les autres consultations sont à confier à un extérieur.`,
+      `Consultation lib impossible : un MAR du roulement en endoscopie ce jour-là et libre pour le bloc suivant est proposé. À défaut, deux possibilités (MAR en 2e semaine de réa ou AFR) sont simulées, et celle qui a le moins de conséquences est recommandée. Les autres consultations sont à confier à un extérieur.`,
       `Une récupération s'ajoute ou se retire d'un clic sur la case du MAR dans Planning par MAR.`,
       `Bouton « Régénérer le planning » : après une mise à jour des indisponibilités, il retire les échanges devenus inutiles et applique toutes les propositions.`]],
     ["Alertes",[
