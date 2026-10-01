@@ -278,9 +278,12 @@ const fmt=new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short"});
 const fmtLong=new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"long",year:"numeric"});
 
 let state;
+const DEFAULT_START="2027-01-04";   // lundi de la semaine 1 (cycle A)
 function load(){
   try{const raw=localStorage.getItem(STORE); if(raw){state=JSON.parse(raw)}}catch(e){state=null}
-  if(!state||!state.start){state={start:iso(mondayOf(new Date())),names:{...DEFAULT_NAMES},indispos:[]}}
+  if(!state||!state.start){state={start:DEFAULT_START,names:{...DEFAULT_NAMES},indispos:[]}}
+  // Mise en place du planning au 4 janvier 2027 : appliquée une fois aux navigateurs qui avaient une autre date
+  if(!state.startInit){state.start=DEFAULT_START; state.startInit=DEFAULT_START}
   state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[];
 }
 function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}}
@@ -817,7 +820,7 @@ document.getElementById("expBtn").onclick=()=>{
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:"application/json"}));
   a.download=`planning-mar-${iso(new Date())}.json`; a.click();};
 document.getElementById("impFile").onchange=e=>{const f=e.target.files[0]; if(!f) return; const r=new FileReader();
-  r.onload=()=>{try{const d=JSON.parse(r.result); if(!d.start||!Array.isArray(d.indispos)) throw 0; state=d; load2();
+  r.onload=()=>{try{const d=JSON.parse(r.result); if(!d.start||!Array.isArray(d.indispos)) throw 0; state=d; state.startInit=state.startInit||DEFAULT_START; load2();
     document.getElementById("pMsg").textContent=`Données importées : ${state.indispos.length} indisponibilité(s).`}
     catch(_){document.getElementById("pMsg").textContent="Ce fichier n'est pas une sauvegarde du planning. Choisissez un fichier exporté depuis cette page."}};
   r.readAsText(f); e.target.value="";};
