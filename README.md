@@ -4,7 +4,7 @@ Application web (un seul fichier `index.html`, sans serveur) pour le roulement d
 
 ## Règles intégrées
 
-- Cycle de 10 semaines (cycles A et B).
+- Cycle de 10 semaines (cycles A et B), démarrant le lundi 4 janvier 2027 (semaine 1, cycle A). La date reste modifiable dans Paramètres.
 - Réa : 3 postes = 2 MAR du roulement + 1 MAR extérieur fixe. Endoscopie : 3 MAR du roulement.
 - Chaque MAR du roulement enchaîne 2 semaines de réa (relais d'un MAR par semaine) puis 3 semaines d'endoscopie.
 - Aucune absence n'est possible pendant la 1re des deux semaines de réa.
