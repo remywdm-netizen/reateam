@@ -330,7 +330,7 @@ function load(){
   if(!state||!state.start){state={start:DEFAULT_START,names:{...DEFAULT_NAMES},indispos:[]}}
   // Mise en place du planning au 4 janvier 2027 : appliquée une fois aux navigateurs qui avaient une autre date
   if(!state.startInit){state.start=DEFAULT_START; state.startInit=DEFAULT_START}
-  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; state.jcRea=state.jcRea||[];
+  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; delete state.jcRea;
 }
 function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}}
 const nm=j=>state.names[j]||("MAR "+j);
@@ -558,7 +558,6 @@ function buildWeek(monday){
     }
     cell[8]={role:"",plan:""}; {const ia=indispoOn(8,di); if(ia) cell[8].ind=ia}
     applySwaps(cell,di); applyAfr(cell,di);
-    for(const x of state.jcRea) if(x.date===di&&cell[PREF_REA].role==="ENDO"&&!cell[PREF_REA].ind){cell[PREF_REA].role=cell[PREF_REA].plan="REA";cell[PREF_REA].jcRea=x.id}
     // REA_CONS (2e semaine de réa + consultation lib) compte en réa : il y est le matin
     let rea=[1,2,3,4,5,6].filter(j=>cell[j].role==="REA"||cell[j].role==="REA_CONS").length;
     let endo=[1,2,3,4,5,8].filter(j=>isEndo(cell[j].role)).length;
@@ -572,9 +571,8 @@ function buildWeek(monday){
     if(cell[7].ind&&(rea<3||endo<3)) alerts.push(["crit",`${dl} : renfort ${nm(7)} nécessaire mais indisponible.`]);
     if(endo<3) alerts.push(["crit",`${dl} : endoscopie à ${endo} MAR (3 attendus).`+(afrFree(cell)?` Proposition : ${nm(8)} en endoscopie ce jour-là.`:""),afrFree(cell)?{afr:{date:di,role:"ENDO"}}:null]);
     if(rea<3){
-      const cand=[1,2,3,4,5].filter(j=>cell[j].role==="ENDO").map(nm);
-      const jc=cell[PREF_REA].role==="ENDO"&&!cell[PREF_REA].ind;
-      alerts.push([rea<2?"crit":"warn",`${dl} : réa à ${rea} MAR (3 attendus).`+(jc?` Proposition : ${nm(PREF_REA)} passe en réa ce jour-là.`:cand.length?` Renfort possible depuis l'endo : ${cand.join(", ")}.`:""),jc?{jcRea:{date:di}}:null]);
+      // un manque ponctuel en réa n'est jamais compensé par un MAR de l'endoscopie
+      alerts.push([rea<2?"crit":"warn",`${dl} : réa à ${rea} MAR (3 attendus).`]);
     }
     // Consultations et blocs perdus
     for(let j=1;j<=7;j++){
@@ -609,7 +607,6 @@ function buildWeek(monday){
     // Remplacements appliqués : rappel avec possibilité d'annuler
     state.swaps.filter(x=>x.date===di&&cell[x.from].replacedBy===x.to).forEach(x=>alerts.push(["info",`${dl} ap-m : ${nm(x.to)} remplace ${nm(x.from)} en consultation lib`+(x.blocDate?` et au bloc du ${fmtDay.format(parse(x.blocDate))} ap-m`:"")+".",{unswap:x.id}]));
     state.afr.filter(a=>(a.date===di||a.blocDate===di)&&cell[8].afr===a.id).forEach(a=>alerts.push(["info",a.blocDate===di?`${dl} ap-m : ${nm(8)} au bloc (suite de sa consultation lib).`:a.from?`${dl} ap-m : ${nm(8)} remplace ${nm(a.from)} en consultation lib et au bloc du ${fmtDay.format(parse(a.blocDate))} ap-m.`:`${dl} : ${nm(8)} en endoscopie (appoint).`,a.date===di?{unafr:a.id}:null]));
-    if(cell[PREF_REA].jcRea) alerts.push(["info",`${dl} : ${nm(PREF_REA)} en réa ce jour-là.`,{unjcRea:cell[PREF_REA].jcRea}]);
     const cons=[1,2,3,4,5,6,7,8].filter(j=>["CONS","CONSX","REA_CONS"].includes(cell[j].role)).length;
     days.push({date,di,cell,rea,endo,cons});
   }
@@ -732,8 +729,6 @@ function renderPlanning(){
     if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1].replace(/\.\.(\s|$)/g,".$1"))}`+
       (a[2]&&a[2].swap?` <button class="btn small" data-swap='${esc(JSON.stringify(a[2].swap))}'>Appliquer</button>`:"")+
       (a[2]&&a[2].unswap?` <button class="btn small ghost" data-unswap="${a[2].unswap}">Annuler</button>`:"")+
-      (a[2]&&a[2].jcRea?` <button class="btn small" data-jcrea='${esc(JSON.stringify(a[2].jcRea))}'>Appliquer</button>`:"")+
-      (a[2]&&a[2].unjcRea?` <button class="btn small ghost" data-unjcrea="${a[2].unjcRea}">Annuler</button>`:"")+
       (a[2]&&a[2].afr?` <button class="btn small" data-afr='${esc(JSON.stringify(a[2].afr))}'>Appliquer</button>`:"")+
       (a[2]&&a[2].unafr?` <button class="btn small ghost" data-unafr="${a[2].unafr}">Annuler</button>`:"")+
       (a[2]&&a[2].reaSwap?` <button class="btn small" data-reaswap='${esc(JSON.stringify(a[2].reaSwap))}'>Appliquer</button>`:"")+
@@ -860,10 +855,9 @@ document.getElementById("regenBtn").onclick=()=>{
   const from=mondayOf(parse(document.getElementById("viewFrom").value||state.start)), n=+document.getElementById("viewWeeks").value+QUARTER;
   for(let guard=0;guard<200;guard++){
     let act=null;
-    for(let i=0;i<n&&!act;i++){const W=buildWeek(addDays(from,7*i)); act=W.alerts.map(a=>a[2]).find(x=>x&&(x.reaSwap||x.swap||x.jcRea))}
+    for(let i=0;i<n&&!act;i++){const W=buildWeek(addDays(from,7*i)); act=W.alerts.map(a=>a[2]).find(x=>x&&(x.reaSwap||x.swap))}
     if(!act) break;
     if(act.reaSwap) state.reaSwaps.push({id:Date.now().toString(36)+guard,...act.reaSwap});
-    else if(act.jcRea) state.jcRea.push({id:Date.now().toString(36)+guard,...act.jcRea});
     else state.swaps.push({id:Date.now().toString(36)+guard,...act.swap});
     added++;
   }
@@ -952,8 +946,6 @@ document.getElementById("weeks").onclick=e=>{
   }
   const b=e.target.closest("button"); if(!b) return;
   if(b.dataset.swap){state.swaps.push({id:Date.now().toString(36),...JSON.parse(b.dataset.swap)}); save(); renderPlanning()}
-  if(b.dataset.jcrea){state.jcRea.push({id:Date.now().toString(36),...JSON.parse(b.dataset.jcrea)}); save(); renderPlanning()}
-  if(b.dataset.unjcrea){state.jcRea=state.jcRea.filter(x=>x.id!==b.dataset.unjcrea); save(); renderPlanning()}
   if(b.dataset.afr){state.afr.push({id:Date.now().toString(36),...JSON.parse(b.dataset.afr)}); save(); renderPlanning()}
   if(b.dataset.unafr){state.afr=state.afr.filter(x=>x.id!==b.dataset.unafr); save(); renderPlanning()}
   if(b.dataset.reaswap){state.reaSwaps.push({id:Date.now().toString(36),...JSON.parse(b.dataset.reaswap)}); save(); renderPlanning()}
@@ -1059,7 +1051,7 @@ function renderRules(){
       `Une récupération s'ajoute ou se retire d'un clic sur la case du MAR dans Planning par MAR.`,
       `Bouton « Régénérer le planning » : après une mise à jour des indisponibilités, il retire les échanges devenus inutiles et applique toutes les propositions.`]],
     ["Alertes",[
-      `Critique : réa à moins de 2, endoscopie incomplète, renfort nécessaire mais indisponible, absence en 1re semaine de réa sans échange possible, consultation lib sans remplaçant.`,
+      `Critique : réa à moins de 2 (jamais compensée par un MAR de l'endoscopie), endoscopie incomplète, renfort nécessaire mais indisponible, absence en 1re semaine de réa sans échange possible, consultation lib sans remplaçant.`,
       `À vérifier : réa à 2 compensée, consultation à confier à un extérieur, bloc imposé non assuré, rééquilibrage à faire. Critique aussi : consultation lib dont personne ne peut assurer le bloc qui suit.`]],
   ];
   document.getElementById("pRules").innerHTML=R.map(([h,l])=>`<h3>${h}</h3><ul>${l.map(x=>`<li>${x}</li>`).join("")}</ul>`).join("");
@@ -1085,7 +1077,7 @@ document.getElementById("impFile").onchange=e=>{const f=e.target.files[0]; if(!f
   r.readAsText(f); e.target.value="";};
 document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes les indisponibilités, tous les remplacements et tous les échanges de réa, et remettre les paramètres par défaut ?")) return;
   try{localStorage.removeItem(STORE)}catch(e){} state=null; load(); load2();};
-function load2(){ if(typeof fillOffSelect==="function") setTimeout(fillOffSelect);state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; state.jcRea=state.jcRea||[]; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
+function load2(){ if(typeof fillOffSelect==="function") setTimeout(fillOffSelect);state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; delete state.jcRea; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
 
 /* ---------- Onglets ---------- */
 // Les onglets « par MAR » et « par poste » partagent la même section (période, alertes, export)
