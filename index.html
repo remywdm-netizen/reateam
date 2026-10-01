@@ -65,6 +65,14 @@ td span.tag{display:block;border-radius:5px;padding:5px 4px;line-height:1.2}
 .t-ENDO{background:var(--endo)}
 .t-CONS{background:var(--cons)}
 .t-CONSX{background:var(--cons2)}
+table.half .t-CONSX{font-size:.78rem}
+table.recap{min-width:760px;table-layout:fixed}
+table.recap th[scope=col]:nth-child(-n+2){width:90px}
+table.recap td{text-align:left;vertical-align:top}
+table.recap tr.pm td,table.recap tr.pm th{border-bottom:2px solid var(--line)}
+table.recap .n{display:inline-block;border-radius:5px;padding:2px 7px;margin:2px 3px 2px 0;font-size:.82rem}
+table.recap th.half-lbl{font-weight:400;color:var(--muted);font-size:.8rem}
+.view-title{margin:0;padding:10px 16px 0;font-size:.85rem;color:var(--muted);font-weight:700}
 .t-BLOC{background:var(--bloc)}
 .t-OFF{background:var(--off);color:#555}
 .t-RENFORT{background:var(--renfort)}
@@ -78,6 +86,8 @@ td.crit{color:var(--crit);font-weight:700}
 .alerts li{margin:3px 0}
 .alerts li.crit{color:var(--crit)}
 .alerts li.warn{color:var(--warn)}
+.alerts li.info{color:var(--accent)}
+.alerts .btn{margin-left:6px;vertical-align:middle}
 .legend{display:flex;flex-wrap:wrap;gap:8px;font-size:.8rem;margin-bottom:14px}
 .legend span{padding:4px 8px;border-radius:5px}
 .list{width:100%;min-width:520px}
@@ -134,6 +144,9 @@ header{position:relative}
   <div class="toolbar">
     <label>Afficher à partir du
       <input type="date" id="viewFrom">
+    </label>
+    <label>Affichage
+      <select id="viewMode"><option value="both">Détail + récapitulatif</option><option value="mar">Détail par MAR</option><option value="poste">Récapitulatif par poste</option></select>
     </label>
     <label>Nombre de semaines
       <select id="viewWeeks"><option>5</option><option selected>10</option><option>20</option><option>52</option></select>
@@ -241,7 +254,7 @@ const STORE="planning-mar-v2";
 const DAYS=["Lundi","Mardi","Mercredi","Jeudi","Vendredi"];
 const QUOT={1:"100 %",2:"90 %",3:"90 %",4:"80 %",5:"80 %",6:"Réa fixe",7:"Renfort"};
 const DEFAULT_NAMES={1:"CS",2:"RW",3:"SG",4:"MS",5:"JC",6:"Extérieur réa",7:"Extérieur renfort"};
-const LABEL={REA:"Réa",ENDO:"Endo",CONS:"Endo + consult.",CONSX:"Endo + consult. *",BLOC:"Endo + bloc ap-m",OFF:"Off temps partiel",RENFORT:"Endo (renfort)",REA_R:"Réa (renfort)",INDISPO:"Indisponible"};
+const LABEL={REA:"Réa",ENDO:"Endo",CONS:"Endo + consult.",CONSX:"Endo + consultation lib",BLOC:"Endo + bloc ap-m",OFF:"Off temps partiel",RENFORT:"Endo (renfort)",REA_R:"Réa (renfort)",INDISPO:"Indisponible"};
 const CONS_NEEDED=[2,1,1,2,0];
 const m5=x=>((x-1)%5+5)%5+1;
 
@@ -257,7 +270,7 @@ let state;
 function load(){
   try{const raw=localStorage.getItem(STORE); if(raw){state=JSON.parse(raw)}}catch(e){state=null}
   if(!state||!state.start){state={start:iso(mondayOf(new Date())),names:{...DEFAULT_NAMES},indispos:[]}}
-  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[];
+  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[];
 }
 function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}}
 const nm=j=>state.names[j]||("MAR "+j);
@@ -280,6 +293,36 @@ function cycleWeek(monday){
 function indispoOn(j,dateIso){return state.indispos.find(i=>+i.who===j&&i.from<=dateIso&&dateIso<=i.to)}
 const isEndo=r=>["ENDO","CONS","CONSX","BLOC","RENFORT"].includes(r);
 
+/* ---------- Remplacement des consultations impossibles ---------- */
+const fmtDay=new Intl.DateTimeFormat("fr-FR",{weekday:"long",day:"numeric",month:"short"});
+// Applique les remplacements validés : consultation le jour même, bloc la semaine suivante pour une consultation lib
+function applySwaps(cell,di){
+  for(const x of state.swaps){
+    const free=c=>!c.ind&&c.role==="ENDO";
+    if(x.date===di&&free(cell[x.to])){cell[x.to].role=x.role;cell[x.to].plan=x.role;cell[x.from].replacedBy=x.to}
+    if(x.blocDate===di){
+      const t=cell[x.to];
+      if(!t.ind&&t.role==="CONS"&&libRole("CONS",parse(di).getDay()-1)==="CONS"){t.role=t.plan="BLOC";t.extCons=x.from}
+      else if(free(t)) t.role=t.plan="BLOC";
+      const f=cell[x.from]; if(f.plan==="BLOC"){f.plan="ENDO"; if(f.role==="BLOC") f.role="ENDO"}
+    }
+  }
+}
+// Consultation lib impossible : cherche un MAR du roulement en endoscopie ce jour-là qui pourra aussi faire le bloc
+// de la semaine suivante. On préfère un MAR en endoscopie ce jour-là ; sinon un MAR dont la consultation simple
+// de ce jour-là sera confiée à un extérieur.
+function proposeAlt(from,plan,d,date,s,cell){
+  const bd=addDays(date,d===1?6:5), blocDate=iso(bd), nd=d===1?0:1, nextS=baseWeek(cycleWeek(mondayOf(bd))).s;
+  const busy=j=>s[j].filter(r=>r==="CONS"||r==="CONSX"||r==="BLOC").length;
+  const base=[1,2,3,4,5].filter(j=>j!==from&&cell[j].role==="ENDO"&&!cell[j].ind&&!indispoOn(j,blocDate)&&!state.swaps.some(x=>x.blocDate===blocDate&&x.to===j));
+  const rank=(a,b)=>busy(a)-busy(b)||a-b;
+  const endo=base.filter(j=>nextS[j][nd]==="ENDO").sort(rank);
+  if(endo.length) return {date:iso(date),from,to:endo[0],role:plan,blocDate};
+  const cons=base.filter(j=>nextS[j][nd]==="CONS"&&libRole("CONS",nd)==="CONS").sort(rank);
+  if(cons.length) return {date:iso(date),from,to:cons[0],role:plan,blocDate,ext:true};
+  return null;
+}
+
 /* ---------- Calcul d'une semaine réelle ---------- */
 function buildWeek(monday){
   const w=cycleWeek(monday), {k,cyc,s}=baseWeek(w);
@@ -291,6 +334,7 @@ function buildWeek(monday){
       cell[j]=(ind&&plan!=="OFF")?{role:plan?"INDISPO":"",plan,ind}:{role:plan,plan};
       if(ind&&!plan) cell[j].ind=ind; // E2 indisponible
     }
+    applySwaps(cell,di);
     let rea=[1,2,3,4,5,6].filter(j=>cell[j].role==="REA").length;
     let endo=[1,2,3,4,5].filter(j=>isEndo(cell[j].role)).length;
     const dl=DAYS[d], e2free=()=>!cell[7].role&&!cell[7].ind;
@@ -307,15 +351,23 @@ function buildWeek(monday){
     for(let j=1;j<=7;j++){
       const c=cell[j];
       if(c.role!=="INDISPO") continue;
-      if(c.plan==="CONS"||c.plan==="CONSX"){
-        const cand=[1,2,3,4,5,7].filter(x=>cell[x].role==="ENDO"||cell[x].role==="RENFORT").map(nm);
-        let t=`${dl} ap-m : consultation de ${nm(j)} à réattribuer`+(cand.length?` (disponibles : ${cand.join(", ")})`:" (aucun MAR libre en endo)")+".";
-        if(d===1) t+=" Le remplaçant sera au bloc le lundi ap-m suivant.";
-        if(c.plan==="CONSX") t+=" Le remplaçant sera au bloc le mardi ap-m suivant.";
-        alerts.push([cand.length?"warn":"crit",t]);
+      if((c.plan==="CONS"||c.plan==="CONSX")&&!c.replacedBy){
+        if(libRole(c.plan,d)!=="CONSX"){alerts.push(["warn",`${dl} ap-m : consultation de ${nm(j)} (${c.ind.motif}) à confier à un MAR extérieur.`]);continue}
+        const alt=proposeAlt(j,c.plan,d,date,s,cell);
+        let t=`${dl} ap-m : consultation lib de ${nm(j)} impossible (${c.ind.motif}).`;
+        if(alt){
+          t+=` Proposition : ${nm(alt.to)} assure la consultation lib puis le bloc du ${fmtDay.format(parse(alt.blocDate))} ap-m à la place de ${nm(j)}`+
+            (alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur.`:".");
+          alerts.push(["warn",t,{swap:alt}]);
+        }else{
+          alerts.push(["crit",t+` Pas d'alternative automatique : aucun MAR en endoscopie ce jour-là n'est libre pour le bloc de la semaine suivante. Déplacez une indisponibilité ou réattribuez manuellement.`]);
+        }
       }
       if(c.plan==="BLOC") alerts.push(["warn",`${dl} ap-m : bloc imposé de ${nm(j)} non assuré.`]);
     }
+    for(let j=1;j<=5;j++) if(cell[j].extCons) alerts.push(["warn",`${dl} ap-m : ${nm(j)} est au bloc à la place de ${nm(cell[j].extCons)} ; sa consultation est à confier à un MAR extérieur.`]);
+    // Remplacements appliqués : rappel avec possibilité d'annuler
+    state.swaps.filter(x=>x.date===di).forEach(x=>alerts.push(["info",`${dl} ap-m : ${nm(x.to)} remplace ${nm(x.from)} en consultation lib`+(x.blocDate?` et au bloc du ${fmtDay.format(parse(x.blocDate))} ap-m`:"")+".",{unswap:x.id}]));
     const cons=[1,2,3,4,5,6,7].filter(j=>cell[j].role==="CONS"||cell[j].role==="CONSX").length;
     days.push({date,di,cell,rea,endo,cons});
   }
@@ -326,49 +378,81 @@ function buildWeek(monday){
 function esc(t){return String(t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 // Poste du matin et de l'après-midi pour chaque rôle de la journée
 const HALF={REA:["REA","REA"],ENDO:["ENDO","ENDO"],CONS:["ENDO","CONS"],CONSX:["ENDO","CONSX"],BLOC:["ENDO","BLOC"],RENFORT:["RENFORT","RENFORT"],REA_R:["REA_R","REA_R"]};
-const HLABEL={REA:"Réa",ENDO:"Endo",CONS:"Consult.",CONSX:"Consult. *",BLOC:"Bloc",RENFORT:"Endo (renfort)",REA_R:"Réa (renfort)"};
+const HLABEL={REA:"Réa",ENDO:"Endo",CONS:"Consult.",CONSX:"Consultation lib",BLOC:"Bloc",RENFORT:"Endo (renfort)",REA_R:"Réa (renfort)"};
 // Deux cellules (matin, après-midi), fusionnées si le poste est le même toute la journée
-function halfCells(c){
-  if(!c.role) return `<td class="d0" colspan="2">${tag(c)}</td>`;
-  if(c.role==="INDISPO") return `<td class="d0" colspan="2">${tag(c)}</td>`;
-  const [am,pm]=HALF[c.role];
+// La consultation du mardi et l'une des deux du jeudi sont les consultations lib (bloc l'ap-m suivant)
+const libRole=(r,d)=>r==="CONS"&&d===1?"CONSX":r;
+function halfCells(c,d){
+  if(!c.role||c.role==="INDISPO") return `<td class="d0" colspan="2">${tag(c,d)}</td>`;
+  const [am,pm]=HALF[libRole(c.role,d)];
   const t=r=>`<span class="tag t-${r}">${HLABEL[r]}</span>`;
   return am===pm?`<td class="d0" colspan="2">${t(am)}</td>`:`<td class="d0">${t(am)}</td><td>${t(pm)}</td>`;
 }
-function tag(c){
+function tag(c,d){
   if(!c.role){return c.ind?`<span class="tag t-OFF">Indispo</span>`:""}
   const cls=c.role==="CONSX"?"CONSX":c.role;
-  if(c.role==="INDISPO") return `<span class="tag t-INDISPO">${esc(c.ind.motif)}<s>${esc(LABEL[c.plan])}</s></span>`;
+  if(c.role==="INDISPO") return `<span class="tag t-INDISPO">${esc(c.ind.motif)}<s>${esc(LABEL[libRole(c.plan,d)])}</s></span>`;
   return `<span class="tag t-${cls}">${LABEL[c.role]}</span>`;
 }
 function renderLegend(){
   document.getElementById("legend").innerHTML=Object.entries({REA:"t-REA",ENDO:"t-ENDO",CONS:"t-CONS",CONSX:"t-CONSX",BLOC:"t-BLOC",RENFORT:"t-RENFORT",REA_R:"t-REA_R"})
-   .map(([k,c])=>`<span class="${c}">${HLABEL[k]}</span>`).join("")+`<span class="t-INDISPO">${LABEL.INDISPO}</span>`+`<span style="color:var(--muted)">* consultant du jeudi : bloc le mardi ap-m suivant</span>`;
+   .map(([k,c])=>`<span class="${c}">${HLABEL[k]}</span>`).join("")+`<span class="t-INDISPO">${LABEL.INDISPO}</span>`+`<span style="color:var(--muted)">Consultation lib : le consultant du mardi est au bloc le lundi ap-m suivant, celui du jeudi le mardi ap-m suivant</span>`;
+}
+// Récapitulatif : une ligne par demi-journée, une colonne par poste, les noms des MAR dans les cases
+const POSTES=[["REA","Réa",["REA","REA_R"]],["ENDO","Endoscopie",["ENDO","RENFORT"]],["CONS","Consultation",["CONS"]],["CONSX","Consultation lib",["CONSX"]],["BLOC","Bloc",["BLOC"]]];
+function recapTable(W){
+  let h=`<div class="scroll"><table class="recap"><thead><tr><th scope="col">Jour</th><th scope="col"></th>`+POSTES.map(p=>`<th scope="col">${p[1]}</th>`).join("")+`<th scope="col">Absents</th></tr></thead><tbody>`;
+  W.days.forEach((D,d)=>{
+    [0,1].forEach(half=>{
+      const by={}; POSTES.forEach(p=>by[p[0]]=[]); const abs=[];
+      for(let j=1;j<=7;j++){
+        const c=D.cell[j];
+        if(c.role==="INDISPO"||(!c.role&&c.ind)){abs.push(`${esc(nm(j))} <small>(${esc(c.ind.motif)})</small>`);continue}
+        if(!c.role) continue;
+        const r=HALF[libRole(c.role,d)][half], p=POSTES.find(p=>p[2].includes(r));
+        if(p) by[p[0]].push(`<span class="n t-${r}">${esc(nm(j))}</span>`);
+      }
+      h+=`<tr class="${half?"pm":""}">`+(half?"":`<th scope="rowgroup" rowspan="2">${DAYS[d]}<small style="display:block;color:var(--muted);font-weight:400">${fmt.format(D.date)}</small></th>`)+
+        `<th scope="row" class="half-lbl">${half?"Ap-m":"Matin"}</th>`+POSTES.map(p=>`<td>${by[p[0]].join("")}</td>`).join("")+`<td>${abs.join("<br>")}</td></tr>`;
+    });
+  });
+  return h+`</tbody></table></div>`;
 }
 let lastWeeks=[];
 function renderPlanning(){
   const from=mondayOf(parse(document.getElementById("viewFrom").value||state.start));
-  const n=+document.getElementById("viewWeeks").value, only=document.getElementById("onlyAlerts").checked;
+  const n=+document.getElementById("viewWeeks").value, only=document.getElementById("onlyAlerts").checked, view=document.getElementById("viewMode").value;
   const weeks=[]; for(let i=0;i<n;i++) weeks.push(buildWeek(addDays(from,7*i)));
   lastWeeks=weeks;
   let html="", nAl=0, nCrit=0;
   for(const W of weeks){
-    nAl+=W.alerts.length; nCrit+=W.alerts.filter(a=>a[0]==="crit").length;
-    if(only&&!W.alerts.length) continue;
+    const real=W.alerts.filter(a=>a[0]!=="info").length;
+    nAl+=real; nCrit+=W.alerts.filter(a=>a[0]==="crit").length;
+    if(only&&!real) continue;
     const crit=W.alerts.some(a=>a[0]==="crit");
-    html+=`<article class="week${crit?" has-crit":""}"><div class="week-head"><h3>Semaine du ${fmtLong.format(W.monday)}</h3><span class="cyc">Cycle ${W.cyc}, semaine ${W.w} sur 10</span></div><div class="scroll"><table class="half"><thead><tr><th scope="col" rowspan="2">MAR</th>`;
+    html+=`<article class="week${crit?" has-crit":""}"><div class="week-head"><h3>Semaine du ${fmtLong.format(W.monday)}</h3><span class="cyc">Cycle ${W.cyc}, semaine ${W.w} sur 10</span></div>`;
+    if(view!=="poste"){
+    if(view==="both") html+=`<p class="view-title">Détail par MAR</p>`;
+    html+=`<div class="scroll"><table class="half"><thead><tr><th scope="col" rowspan="2">MAR</th>`;
     W.days.forEach((D,i)=>html+=`<th scope="colgroup" colspan="2" class="d0">${DAYS[i]}<small>${fmt.format(D.date)}</small></th>`);
     html+=`</tr><tr>`+W.days.map(()=>`<th scope="col" class="d0">Matin</th><th scope="col">Ap-m</th>`).join("")+`</tr></thead><tbody>`;
     for(let j=1;j<=7;j++){
       html+=`<tr><th scope="row">${esc(nm(j))}<small>${QUOT[j]}</small></th>`;
-      W.days.forEach(D=>html+=halfCells(D.cell[j]));
+      W.days.forEach((D,d)=>html+=halfCells(D.cell[j],d));
       html+=`</tr>`;
     }
     html+=`<tr class="count"><th scope="row">Effectif réa</th>`+W.days.map(D=>`<td colspan="2" class="d0 ${D.rea<2?"crit":D.rea<3?"low":""}">${D.rea}</td>`).join("")+`</tr>`;
     html+=`<tr class="count"><th scope="row">Effectif endo</th>`+W.days.map(D=>`<td colspan="2" class="d0 ${D.endo<3?"crit":""}">${D.endo}</td>`).join("")+`</tr>`;
     html+=`<tr class="count"><th scope="row">Consultations</th>`+W.days.map((D,i)=>`<td colspan="2" class="d0 ${D.cons<CONS_NEEDED[i]?"crit":""}">${D.cons} / ${CONS_NEEDED[i]}</td>`).join("")+`</tr>`;
     html+=`</tbody></table></div>`;
-    if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1])}</li>`).join("")+`</ul>`;
+    }
+    if(view!=="mar"){
+      if(view==="both") html+=`<p class="view-title">Récapitulatif par poste</p>`;
+      html+=recapTable(W);
+    }
+    if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1])}`+
+      (a[2]&&a[2].swap?` <button class="btn small" data-swap='${esc(JSON.stringify(a[2].swap))}'>Appliquer</button>`:"")+
+      (a[2]&&a[2].unswap?` <button class="btn small ghost" data-unswap="${a[2].unswap}">Annuler</button>`:"")+`</li>`).join("")+`</ul>`;
     html+=`</article>`;
   }
   document.getElementById("weeks").innerHTML=html||`<p class="empty">Aucune alerte sur la période affichée.</p>`;
@@ -379,7 +463,7 @@ function renderPlanning(){
 document.getElementById("csvBtn").onclick=()=>{
   const rows=[["Semaine","Cycle","Date","Jour","MAR","Matin","Après-midi","Motif indisponibilité"]];
   for(const W of lastWeeks) W.days.forEach((D,i)=>{for(let j=1;j<=7;j++){const c=D.cell[j]; if(!c.role&&!c.ind) continue;
-    rows.push([iso(W.monday),W.cyc+W.w,D.di,DAYS[i],nm(j),...(HALF[c.role]?HALF[c.role].map(r=>HLABEL[r]):[c.role?LABEL[c.role]:"",c.role?LABEL[c.role]:""]),c.ind?c.ind.motif:""])}});
+    rows.push([iso(W.monday),W.cyc+W.w,D.di,DAYS[i],nm(j),...(HALF[c.role]?HALF[libRole(c.role,i)].map(r=>HLABEL[r]):[c.role?LABEL[c.role]:"",c.role?LABEL[c.role]:""]),c.ind?c.ind.motif:""])}});
   const csv="\ufeff"+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";")).join("\n");
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download="planning-mar.csv"; a.click();
 };
@@ -439,6 +523,11 @@ document.getElementById("iAdd").onclick=()=>{
   document.getElementById("iNote").value=""; renderIndispo(); renderPlanning();
 };
 document.getElementById("iFrom").onchange=e=>{const t=document.getElementById("iTo"); if(!t.value||t.value<e.target.value) t.value=e.target.value};
+document.getElementById("weeks").onclick=e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  if(b.dataset.swap){state.swaps.push({id:Date.now().toString(36),...JSON.parse(b.dataset.swap)}); save(); renderPlanning()}
+  if(b.dataset.unswap){state.swaps=state.swaps.filter(x=>x.id!==b.dataset.unswap); save(); renderPlanning()}
+};
 document.getElementById("iList").onclick=e=>{const id=e.target.dataset.del; if(!id) return;
   state.indispos=state.indispos.filter(i=>i.id!==id); save(); renderIndispo(); renderPlanning();};
 document.getElementById("iFilter").onchange=renderIndispo;
@@ -462,15 +551,15 @@ document.getElementById("impFile").onchange=e=>{const f=e.target.files[0]; if(!f
     document.getElementById("pMsg").textContent=`Données importées : ${state.indispos.length} indisponibilité(s).`}
     catch(_){document.getElementById("pMsg").textContent="Ce fichier n'est pas une sauvegarde du planning. Choisissez un fichier exporté depuis cette page."}};
   r.readAsText(f); e.target.value="";};
-document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes les indisponibilités et remettre les paramètres par défaut ?")) return;
+document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes les indisponibilités et tous les remplacements, et remettre les paramètres par défaut ?")) return;
   try{localStorage.removeItem(STORE)}catch(e){} state=null; load(); load2();};
-function load2(){state.names={...DEFAULT_NAMES,...state.names}; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
+function load2(){state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
 
 /* ---------- Onglets ---------- */
 document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) return;
   document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
   document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+t);};
-["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
+["viewFrom","viewWeeks","viewMode","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
 
 load(); renderLegend(); load2();
 </script>
