@@ -488,12 +488,18 @@ function proposeReaSwapTo(monday,x){
 /* ---------- Remplacement des consultations impossibles ---------- */
 const fmtDay=new Intl.DateTimeFormat("fr-FR",{weekday:"long",day:"numeric",month:"short"});
 // Applique les remplacements validés : consultation le jour même, bloc la semaine suivante pour une consultation lib
+// Le remplacement de la consultation s'applique-t-il bien le jour de la consultation ? (sinon, pas de bloc non plus)
+function swapApplies(x){
+  const dt=parse(x.date), d=dt.getDay()-1; if(d<0||d>4) return false;
+  const r=weekRows(mondayOf(dt)).s[x.to]; const role=r&&r[d];
+  return !indispoOn(x.to,x.date)&&(role==="ENDO"||(x.rea&&role==="REA"));
+}
 function applySwaps(cell,di){
   for(const x of state.swaps){
     const free=c=>!c.ind&&c.role==="ENDO";
     if(x.date===di&&!cell[x.to].ind&&(cell[x.to].role==="ENDO"||(x.rea&&cell[x.to].role==="REA"))){const r=x.rea?"REA_CONS":x.role;cell[x.to].role=r;cell[x.to].plan=r;cell[x.to].swapped=true;cell[x.from].replacedBy=x.to;
       if(cell[x.from].role===x.role){cell[x.from].role=cell[x.from].plan="ENDO"}}
-    if(x.blocDate===di){
+    if(x.blocDate===di&&swapApplies(x)){
       const t=cell[x.to];
       if(!t.ind&&t.role==="CONS"&&libRole("CONS",parse(di).getDay()-1)==="CONS"){t.role=t.plan="BLOC";t.extCons=x.from}
       else if(free(t)) t.role=t.plan="BLOC";
@@ -535,7 +541,7 @@ function applyAfr(cell,di){
       cell[8].role=cell[8].plan=a.role; cell[8].afr=a.id;
       if(a.from){const f=cell[a.from]; f.replacedBy=8; if(f.role===a.role) f.role=f.plan="ENDO"}
     }
-    if(a.blocDate===di){
+    if(a.blocDate===di&&!indispoOn(8,a.date)){
       cell[8].role=cell[8].plan="BLOC"; cell[8].afr=a.id;
       const f=cell[a.from]; if(f.plan==="BLOC"){f.plan="ENDO"; if(f.role==="BLOC") f.role="ENDO"}
     }
@@ -580,7 +586,8 @@ function buildWeek(monday){
         if(ab){
           const alt=proposeAlt(j,c.role,d,date,s,cell);
           let t=`${dl} ap-m : consultation lib de ${nm(j)} à déplacer, car ${nm(j)} est indisponible le jour du bloc qui suit (${fmtDay.format(parse(bdi))} ap-m, ${ab.motif}).`;
-          if(alt) alerts.push(["warn",t+` Proposition : ${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""} assure la consultation lib puis ce bloc`+(alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur.`:"."),{swap:alt}]);
+          const fa2=alt&&alt.rea?afrLib(cell,c.role,j,bdi,di):null;
+          if(alt) alerts.push(["warn",t+(fa2?` Deux possibilités : 1) `:` Proposition : `)+`${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""} assure la consultation lib puis ce bloc`+(alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur`:"")+(fa2?` ; 2) ${nm(8)} assure la consultation lib puis ce bloc.`:"."),{swap:alt,...(fa2||{})}]);
           else{const fa=afrLib(cell,c.role,j,bdi,di); alerts.push(["crit",t+(fa?` Aucun MAR du roulement n'est libre. Proposition : ${nm(8)} assure la consultation lib puis ce bloc.`:` Pas d'alternative automatique : aucun MAR en endoscopie ce jour-là n'est libre pour ce bloc.`),fa]);}
         }
       }
@@ -592,7 +599,9 @@ function buildWeek(monday){
         if(alt){
           t+=` Proposition : ${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""} assure la consultation lib puis le bloc du ${fmtDay.format(parse(alt.blocDate))} ap-m à la place de ${nm(j)}`+
             (alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur.`:".");
-          alerts.push(["warn",t,{swap:alt}]);
+          const fa2=alt.rea?afrLib(cell,c.plan,j,alt.blocDate,di):null;
+          if(fa2) t=t.replace(" Proposition : "," Deux possibilités : 1) ").replace(/\.$/,"")+` ; 2) ${nm(8)} assure la consultation lib puis ce bloc.`;
+          alerts.push(["warn",t,{swap:alt,...(fa2||{})}]);
         }else{
           const fa=afrLib(cell,c.plan,j,iso(addDays(date,d===1?6:5)),di);
           alerts.push(["crit",t+(fa?` Aucun MAR du roulement n'est libre. Proposition : ${nm(8)} assure la consultation lib puis le bloc du ${fmtDay.format(addDays(date,d===1?6:5))} ap-m.`:` Pas d'alternative automatique : aucun MAR en endoscopie ce jour-là n'est libre pour le bloc de la semaine suivante. Déplacez une indisponibilité ou réattribuez manuellement.`),fa]);
@@ -740,6 +749,17 @@ function renderPlanning(){
   document.getElementById("planHint").hidden=view!=="mar";
   renderBalance(from);
   const weeks=[]; for(let i=0;i<n;i++) weeks.push(buildWeek(addDays(from,7*i)));
+  // Contrôle : chaque bloc du lundi / mardi suit une consultation lib du même MAR la semaine précédente, et inversement
+  let prevW=buildWeek(addDays(from,-7));
+  for(const W of weeks){
+    for(const [cd,bd] of LIB){
+      const P=prevW.days[cd], B=W.days[bd], cons=[1,2,3,4,5,8].filter(j=>isLib(P.cell[j].role,cd)), bloc=[1,2,3,4,5,8].filter(j=>B.cell[j].role==="BLOC");
+      // (sauf si ce MAR était absent le jour de la consultation : l'alerte de consultation lib à remplacer suffit)
+      bloc.filter(j=>!cons.includes(j)&&!(P.cell[j].role==="INDISPO"&&isLib(P.cell[j].plan,cd))).forEach(j=>W.alerts.push(["crit",`${DAYS[bd]} ap-m : ${nm(j)} est au bloc sans avoir fait la consultation lib du ${fmtWd.format(P.date)}. Cliquez sur « Régénérer le planning ».`]));
+      cons.filter(j=>!bloc.includes(j)&&!B.cell[j].ind).forEach(j=>W.alerts.push(["crit",`${DAYS[bd]} ap-m : ${nm(j)} a fait la consultation lib du ${fmtWd.format(P.date)} mais n'est pas au bloc qui suit.`]));
+    }
+    prevW=W;
+  }
   lastWeeks=weeks;
   let html="", nAl=0, nCrit=0;
   for(const W of weeks){
@@ -766,9 +786,9 @@ function renderPlanning(){
       html+=recapTable(W);
     }
     if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1].replace(/\.\.(\s|$)/g,".$1"))}`+
-      (a[2]&&a[2].swap?` <button class="btn small" data-swap='${esc(JSON.stringify(a[2].swap))}'>Appliquer</button>`:"")+
+      (a[2]&&a[2].swap?` <button class="btn small" data-swap='${esc(JSON.stringify(a[2].swap))}'>Appliquer${a[2].afr?" : "+esc(nm(a[2].swap.to)):""}</button>`:"")+
       (a[2]&&a[2].unswap?` <button class="btn small ghost" data-unswap="${a[2].unswap}">Annuler</button>`:"")+
-      (a[2]&&a[2].afr?` <button class="btn small" data-afr='${esc(JSON.stringify(a[2].afr))}'>Appliquer</button>`:"")+
+      (a[2]&&a[2].afr?` <button class="btn small${a[2].swap?" ghost":""}" data-afr='${esc(JSON.stringify(a[2].afr))}'>Appliquer${a[2].swap?" : "+esc(nm(8)):""}</button>`:"")+
       (a[2]&&a[2].unafr?` <button class="btn small ghost" data-unafr="${a[2].unafr}">Annuler</button>`:"")+
       (a[2]&&a[2].reaSwap?` <button class="btn small" data-reaswap='${esc(JSON.stringify(a[2].reaSwap))}'>Appliquer</button>`:"")+
       (a[2]&&a[2].unReaSwap?` <button class="btn small ghost" data-unreaswap="${a[2].unReaSwap}">Annuler</button>`:"")+`</li>`).join("")+`</ul>`;
@@ -876,8 +896,9 @@ document.getElementById("csvBtn").onclick=()=>{
 // 1) retire les remplacements et échanges qui ne correspondent plus à une absence ;
 // 2) applique une à une, dans l'ordre chronologique, toutes les propositions de la période affichée (+ 3 mois).
 function staleSwaps(){
-  const consult=state.swaps.filter(x=>!x.bal&&!indispoOn(x.from,x.date)&&!(x.blocDate&&indispoOn(x.from,x.blocDate)));
-  const rea=state.reaSwaps.filter(x=>!x.comp&&!absDaysIn(x.a,parse(x.monday)));
+  // devenus inutiles (absence supprimée) ou inapplicables (roulement modifié, remplaçant indisponible…)
+  const consult=state.swaps.filter(x=>!swapApplies(x)||(!x.bal&&!indispoOn(x.from,x.date)&&!(x.blocDate&&indispoOn(x.from,x.blocDate))));
+  const rea=state.reaSwaps.filter(x=>!x.comp&&(!absDaysIn(x.a,parse(x.monday))||baseWeek(cycleWeek(parse(x.monday))).first!==x.a));
   const afr=state.afr.filter(x=>x.from&&!indispoOn(x.from,x.date)&&!indispoOn(x.from,x.blocDate));
   return {consult,rea,afr};
 }
