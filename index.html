@@ -50,6 +50,11 @@ input,select{font:inherit;color:var(--ink);padding:8px 10px;border:1px solid var
 .week.has-crit{border-color:var(--crit)}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;min-width:640px}
+table.half{min-width:880px;table-layout:fixed}
+table.half thead th[rowspan]{width:185px}
+table.half td,table.half thead tr+tr th{padding:5px 3px}
+table.half .d0{border-left:2px solid var(--line)}
+thead tr+tr th{font-size:.72rem;font-weight:400;color:var(--muted);background:#fafcfc}
 th,td{padding:6px 8px;text-align:center;border-bottom:1px solid var(--line);font-size:.85rem}
 thead th{background:#f6f9f9;font-weight:700}
 thead th small{display:block;font-weight:400;color:var(--muted)}
@@ -319,6 +324,17 @@ function buildWeek(monday){
 
 /* ---------- Rendu planning ---------- */
 function esc(t){return String(t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+// Poste du matin et de l'après-midi pour chaque rôle de la journée
+const HALF={REA:["REA","REA"],ENDO:["ENDO","ENDO"],CONS:["ENDO","CONS"],CONSX:["ENDO","CONSX"],BLOC:["ENDO","BLOC"],RENFORT:["RENFORT","RENFORT"],REA_R:["REA_R","REA_R"]};
+const HLABEL={REA:"Réa",ENDO:"Endo",CONS:"Consult.",CONSX:"Consult. *",BLOC:"Bloc",RENFORT:"Endo (renfort)",REA_R:"Réa (renfort)"};
+// Deux cellules (matin, après-midi), fusionnées si le poste est le même toute la journée
+function halfCells(c){
+  if(!c.role) return `<td class="d0" colspan="2">${tag(c)}</td>`;
+  if(c.role==="INDISPO") return `<td class="d0" colspan="2">${tag(c)}</td>`;
+  const [am,pm]=HALF[c.role];
+  const t=r=>`<span class="tag t-${r}">${HLABEL[r]}</span>`;
+  return am===pm?`<td class="d0" colspan="2">${t(am)}</td>`:`<td class="d0">${t(am)}</td><td>${t(pm)}</td>`;
+}
 function tag(c){
   if(!c.role){return c.ind?`<span class="tag t-OFF">Indispo</span>`:""}
   const cls=c.role==="CONSX"?"CONSX":c.role;
@@ -326,8 +342,8 @@ function tag(c){
   return `<span class="tag t-${cls}">${LABEL[c.role]}</span>`;
 }
 function renderLegend(){
-  document.getElementById("legend").innerHTML=Object.entries({REA:"t-REA",ENDO:"t-ENDO",CONS:"t-CONS",CONSX:"t-CONSX",BLOC:"t-BLOC",RENFORT:"t-RENFORT",REA_R:"t-REA_R",INDISPO:"t-INDISPO"})
-   .map(([k,c])=>`<span class="${c}">${LABEL[k]}</span>`).join("")+`<span style="color:var(--muted)">* consultant du jeudi : bloc le mardi ap-m suivant</span>`;
+  document.getElementById("legend").innerHTML=Object.entries({REA:"t-REA",ENDO:"t-ENDO",CONS:"t-CONS",CONSX:"t-CONSX",BLOC:"t-BLOC",RENFORT:"t-RENFORT",REA_R:"t-REA_R"})
+   .map(([k,c])=>`<span class="${c}">${HLABEL[k]}</span>`).join("")+`<span class="t-INDISPO">${LABEL.INDISPO}</span>`+`<span style="color:var(--muted)">* consultant du jeudi : bloc le mardi ap-m suivant</span>`;
 }
 let lastWeeks=[];
 function renderPlanning(){
@@ -340,17 +356,17 @@ function renderPlanning(){
     nAl+=W.alerts.length; nCrit+=W.alerts.filter(a=>a[0]==="crit").length;
     if(only&&!W.alerts.length) continue;
     const crit=W.alerts.some(a=>a[0]==="crit");
-    html+=`<article class="week${crit?" has-crit":""}"><div class="week-head"><h3>Semaine du ${fmtLong.format(W.monday)}</h3><span class="cyc">Cycle ${W.cyc}, semaine ${W.w} sur 10</span></div><div class="scroll"><table><thead><tr><th scope="col">MAR</th>`;
-    W.days.forEach((D,i)=>html+=`<th scope="col">${DAYS[i]}<small>${fmt.format(D.date)}</small></th>`);
-    html+=`</tr></thead><tbody>`;
+    html+=`<article class="week${crit?" has-crit":""}"><div class="week-head"><h3>Semaine du ${fmtLong.format(W.monday)}</h3><span class="cyc">Cycle ${W.cyc}, semaine ${W.w} sur 10</span></div><div class="scroll"><table class="half"><thead><tr><th scope="col" rowspan="2">MAR</th>`;
+    W.days.forEach((D,i)=>html+=`<th scope="colgroup" colspan="2" class="d0">${DAYS[i]}<small>${fmt.format(D.date)}</small></th>`);
+    html+=`</tr><tr>`+W.days.map(()=>`<th scope="col" class="d0">Matin</th><th scope="col">Ap-m</th>`).join("")+`</tr></thead><tbody>`;
     for(let j=1;j<=7;j++){
       html+=`<tr><th scope="row">${esc(nm(j))}<small>${QUOT[j]}</small></th>`;
-      W.days.forEach(D=>html+=`<td>${tag(D.cell[j])}</td>`);
+      W.days.forEach(D=>html+=halfCells(D.cell[j]));
       html+=`</tr>`;
     }
-    html+=`<tr class="count"><th scope="row">Effectif réa</th>`+W.days.map(D=>`<td class="${D.rea<2?"crit":D.rea<3?"low":""}">${D.rea}</td>`).join("")+`</tr>`;
-    html+=`<tr class="count"><th scope="row">Effectif endo</th>`+W.days.map(D=>`<td class="${D.endo<3?"crit":""}">${D.endo}</td>`).join("")+`</tr>`;
-    html+=`<tr class="count"><th scope="row">Consultations</th>`+W.days.map((D,i)=>`<td class="${D.cons<CONS_NEEDED[i]?"crit":""}">${D.cons} / ${CONS_NEEDED[i]}</td>`).join("")+`</tr>`;
+    html+=`<tr class="count"><th scope="row">Effectif réa</th>`+W.days.map(D=>`<td colspan="2" class="d0 ${D.rea<2?"crit":D.rea<3?"low":""}">${D.rea}</td>`).join("")+`</tr>`;
+    html+=`<tr class="count"><th scope="row">Effectif endo</th>`+W.days.map(D=>`<td colspan="2" class="d0 ${D.endo<3?"crit":""}">${D.endo}</td>`).join("")+`</tr>`;
+    html+=`<tr class="count"><th scope="row">Consultations</th>`+W.days.map((D,i)=>`<td colspan="2" class="d0 ${D.cons<CONS_NEEDED[i]?"crit":""}">${D.cons} / ${CONS_NEEDED[i]}</td>`).join("")+`</tr>`;
     html+=`</tbody></table></div>`;
     if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1])}</li>`).join("")+`</ul>`;
     html+=`</article>`;
@@ -361,9 +377,9 @@ function renderPlanning(){
 
 /* ---------- CSV ---------- */
 document.getElementById("csvBtn").onclick=()=>{
-  const rows=[["Semaine","Cycle","Date","Jour","MAR","Poste","Motif indisponibilité"]];
+  const rows=[["Semaine","Cycle","Date","Jour","MAR","Matin","Après-midi","Motif indisponibilité"]];
   for(const W of lastWeeks) W.days.forEach((D,i)=>{for(let j=1;j<=7;j++){const c=D.cell[j]; if(!c.role&&!c.ind) continue;
-    rows.push([iso(W.monday),W.cyc+W.w,D.di,DAYS[i],nm(j),c.role?LABEL[c.role]:"",c.ind?c.ind.motif:""])}});
+    rows.push([iso(W.monday),W.cyc+W.w,D.di,DAYS[i],nm(j),...(HALF[c.role]?HALF[c.role].map(r=>HLABEL[r]):[c.role?LABEL[c.role]:"",c.role?LABEL[c.role]:""]),c.ind?c.ind.motif:""])}});
   const csv="\ufeff"+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";")).join("\n");
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download="planning-mar.csv"; a.click();
 };
