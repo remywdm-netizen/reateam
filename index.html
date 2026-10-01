@@ -72,7 +72,6 @@ table.recap td{text-align:left;vertical-align:top}
 table.recap tr.pm td,table.recap tr.pm th{border-bottom:2px solid var(--line)}
 table.recap .n{display:inline-block;border-radius:5px;padding:2px 7px;margin:2px 3px 2px 0;font-size:.82rem}
 table.recap th.half-lbl{font-weight:400;color:var(--muted);font-size:.8rem}
-.view-title{margin:0;padding:10px 16px 0;font-size:.85rem;color:var(--muted);font-weight:700}
 .t-BLOC{background:var(--bloc)}
 .t-OFF{background:var(--off);color:#555}
 .t-RENFORT{background:var(--renfort)}
@@ -132,7 +131,8 @@ header{position:relative}
   <h1>Planning MAR · Réa / Endoscopie</h1>
   <p>Cycle de 10 semaines : réa à 3 (2 MAR du roulement + 1 extérieur), endoscopie à 3, consultations intégrées. Les jours off des temps partiels se saisissent dans les indisponibilités.</p>
   <nav role="tablist">
-    <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
+    <button role="tab" data-tab="planning" aria-selected="true">Planning par MAR</button>
+    <button role="tab" data-tab="poste" aria-selected="false">Planning par poste</button>
     <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
     <button role="tab" data-tab="params" aria-selected="false">Paramètres</button>
   </nav>
@@ -144,9 +144,6 @@ header{position:relative}
   <div class="toolbar">
     <label>Afficher à partir du
       <input type="date" id="viewFrom">
-    </label>
-    <label>Affichage
-      <select id="viewMode"><option value="both">Détail + récapitulatif</option><option value="mar">Détail par MAR</option><option value="poste">Récapitulatif par poste</option></select>
     </label>
     <label>Nombre de semaines
       <select id="viewWeeks"><option>5</option><option selected>10</option><option>20</option><option>52</option></select>
@@ -433,7 +430,7 @@ function recapTable(W){
 let lastWeeks=[];
 function renderPlanning(){
   const from=mondayOf(parse(document.getElementById("viewFrom").value||state.start));
-  const n=+document.getElementById("viewWeeks").value, only=document.getElementById("onlyAlerts").checked, view=document.getElementById("viewMode").value;
+  const n=+document.getElementById("viewWeeks").value, only=document.getElementById("onlyAlerts").checked, view=planView;
   const weeks=[]; for(let i=0;i<n;i++) weeks.push(buildWeek(addDays(from,7*i)));
   lastWeeks=weeks;
   let html="", nAl=0, nCrit=0;
@@ -443,8 +440,7 @@ function renderPlanning(){
     if(only&&!real) continue;
     const crit=W.alerts.some(a=>a[0]==="crit");
     html+=`<article class="week${crit?" has-crit":""}"><div class="week-head"><h3>Semaine du ${fmtLong.format(W.monday)}</h3><span class="cyc">Cycle ${W.cyc}, semaine ${W.w} sur 10</span></div>`;
-    if(view!=="poste"){
-    if(view==="both") html+=`<p class="view-title">Détail par MAR</p>`;
+    if(view==="mar"){
     html+=`<div class="scroll"><table class="half"><thead><tr><th scope="col" rowspan="2">MAR</th>`;
     W.days.forEach((D,i)=>html+=`<th scope="colgroup" colspan="2" class="d0">${DAYS[i]}<small>${fmt.format(D.date)}</small></th>`);
     html+=`</tr><tr>`+W.days.map(()=>`<th scope="col" class="d0">Matin</th><th scope="col">Ap-m</th>`).join("")+`</tr></thead><tbody>`;
@@ -458,8 +454,7 @@ function renderPlanning(){
     html+=`<tr class="count"><th scope="row">Consultations</th>`+W.days.map((D,i)=>`<td colspan="2" class="d0 ${D.cons<CONS_NEEDED[i]?"crit":""}">${D.cons} / ${CONS_NEEDED[i]}</td>`).join("")+`</tr>`;
     html+=`</tbody></table></div>`;
     }
-    if(view!=="mar"){
-      if(view==="both") html+=`<p class="view-title">Récapitulatif par poste</p>`;
+    if(view==="poste"){
       html+=recapTable(W);
     }
     if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1])}`+
@@ -570,10 +565,14 @@ document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes 
 function load2(){state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
 
 /* ---------- Onglets ---------- */
+// Les onglets « par MAR » et « par poste » partagent la même section (période, alertes, export)
+let planView="mar";
 document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) return;
   document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
-  document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+t);};
-["viewFrom","viewWeeks","viewMode","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
+  const sec=t==="poste"?"planning":t;
+  document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+sec);
+  if(sec==="planning"){planView=t==="poste"?"poste":"mar"; renderPlanning()}};
+["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
 
 load(); renderLegend(); load2();
 </script>
