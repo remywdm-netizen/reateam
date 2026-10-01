@@ -72,7 +72,6 @@ table.recap td{text-align:left;vertical-align:top}
 table.recap tr.pm td,table.recap tr.pm th{border-bottom:2px solid var(--line)}
 table.recap .n{display:inline-block;border-radius:5px;padding:2px 7px;margin:2px 3px 2px 0;font-size:.82rem}
 table.recap th.half-lbl{font-weight:400;color:var(--muted);font-size:.8rem}
-.view-title{margin:0;padding:10px 16px 0;font-size:.85rem;color:var(--muted);font-weight:700}
 .t-BLOC{background:var(--bloc)}
 .t-OFF{background:var(--off);color:#555}
 .t-RENFORT{background:var(--renfort)}
@@ -132,7 +131,8 @@ header{position:relative}
   <h1>Planning MAR · Réa / Endoscopie</h1>
   <p>Cycle de 10 semaines : réa à 3 (2 MAR du roulement + 1 extérieur), endoscopie à 3, consultations intégrées. Les jours off des temps partiels se saisissent dans les indisponibilités.</p>
   <nav role="tablist">
-    <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
+    <button role="tab" data-tab="planning" aria-selected="true">Planning par MAR</button>
+    <button role="tab" data-tab="poste" aria-selected="false">Planning par poste</button>
     <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
     <button role="tab" data-tab="params" aria-selected="false">Paramètres</button>
   </nav>
@@ -144,9 +144,6 @@ header{position:relative}
   <div class="toolbar">
     <label>Afficher à partir du
       <input type="date" id="viewFrom">
-    </label>
-    <label>Affichage
-      <select id="viewMode"><option value="both">Détail + récapitulatif</option><option value="mar">Détail par MAR</option><option value="poste">Récapitulatif par poste</option></select>
     </label>
     <label>Nombre de semaines
       <select id="viewWeeks"><option>5</option><option selected>10</option><option>20</option><option>52</option></select>
@@ -278,7 +275,7 @@ const nm=j=>state.names[j]||("MAR "+j);
 /* ---------- Trame théorique ---------- */
 function baseWeek(w){ // w = 1..10
   const k=m5(w), cyc=w<=5?"A":"B", s={};
-  [k,m5(k+1)].forEach(j=>s[j]=Array(5).fill("REA"));
+  [k,m5(k+1)].forEach(j=>s[j]=Array(5).fill("REA"));  // m5(k+1) entre en réa (1re semaine), k y termine sa 2e semaine
   s[m5(k+2)]=["CONS","BLOC","ENDO","CONS","ENDO"];   // dernière semaine d'endo avant la réa
   s[m5(k+3)]=["BLOC","ENDO","CONS","CONSX","ENDO"];  // semaine du milieu
   s[m5(k+4)]=["CONS","CONS","ENDO","ENDO","ENDO"];   // sortie de réa
@@ -292,6 +289,16 @@ function cycleWeek(monday){
 }
 function indispoOn(j,dateIso){return state.indispos.find(i=>+i.who===j&&i.from<=dateIso&&dateIso<=i.to)}
 const isEndo=r=>["ENDO","CONS","CONSX","BLOC","RENFORT"].includes(r);
+
+/* ---------- 1re semaine de réa : aucune absence ---------- */
+const firstRea=monday=>m5(baseWeek(cycleWeek(monday)).k+1);
+// Lundis des 1res semaines de réa du MAR touchées par la période [a, b]
+function firstReaHits(j,a,b){
+  const hits=[];
+  for(let m=mondayOf(parse(a));iso(m)<=b;m=addDays(m,7))
+    if(j<=5&&firstRea(m)===j) for(let d=0;d<5;d++){const di=iso(addDays(m,d)); if(di>=a&&di<=b){hits.push(m);break}}
+  return hits;
+}
 
 /* ---------- Remplacement des consultations impossibles ---------- */
 const fmtDay=new Intl.DateTimeFormat("fr-FR",{weekday:"long",day:"numeric",month:"short"});
@@ -347,6 +354,8 @@ function buildWeek(monday){
       const cand=[1,2,3,4,5].filter(j=>cell[j].role==="ENDO").map(nm);
       alerts.push([rea<2?"crit":"warn",`${dl} : réa à ${rea} MAR (3 attendus).`+(cand.length?` Renfort possible depuis l'endo : ${cand.join(", ")}.`:"")]);
     }
+    const fr=m5(k+1), fi=cell[fr].ind;
+    if(fi) alerts.push(["crit",`${dl} : ${nm(fr)} est en 1re semaine de réa, aucune absence n'y est possible (${fi.motif} saisi). Déplacez cette absence.`]);
     // Consultations et blocs perdus
     for(let j=1;j<=7;j++){
       const c=cell[j];
@@ -421,7 +430,7 @@ function recapTable(W){
 let lastWeeks=[];
 function renderPlanning(){
   const from=mondayOf(parse(document.getElementById("viewFrom").value||state.start));
-  const n=+document.getElementById("viewWeeks").value, only=document.getElementById("onlyAlerts").checked, view=document.getElementById("viewMode").value;
+  const n=+document.getElementById("viewWeeks").value, only=document.getElementById("onlyAlerts").checked, view=planView;
   const weeks=[]; for(let i=0;i<n;i++) weeks.push(buildWeek(addDays(from,7*i)));
   lastWeeks=weeks;
   let html="", nAl=0, nCrit=0;
@@ -431,8 +440,7 @@ function renderPlanning(){
     if(only&&!real) continue;
     const crit=W.alerts.some(a=>a[0]==="crit");
     html+=`<article class="week${crit?" has-crit":""}"><div class="week-head"><h3>Semaine du ${fmtLong.format(W.monday)}</h3><span class="cyc">Cycle ${W.cyc}, semaine ${W.w} sur 10</span></div>`;
-    if(view!=="poste"){
-    if(view==="both") html+=`<p class="view-title">Détail par MAR</p>`;
+    if(view==="mar"){
     html+=`<div class="scroll"><table class="half"><thead><tr><th scope="col" rowspan="2">MAR</th>`;
     W.days.forEach((D,i)=>html+=`<th scope="colgroup" colspan="2" class="d0">${DAYS[i]}<small>${fmt.format(D.date)}</small></th>`);
     html+=`</tr><tr>`+W.days.map(()=>`<th scope="col" class="d0">Matin</th><th scope="col">Ap-m</th>`).join("")+`</tr></thead><tbody>`;
@@ -446,8 +454,7 @@ function renderPlanning(){
     html+=`<tr class="count"><th scope="row">Consultations</th>`+W.days.map((D,i)=>`<td colspan="2" class="d0 ${D.cons<CONS_NEEDED[i]?"crit":""}">${D.cons} / ${CONS_NEEDED[i]}</td>`).join("")+`</tr>`;
     html+=`</tbody></table></div>`;
     }
-    if(view!=="mar"){
-      if(view==="both") html+=`<p class="view-title">Récapitulatif par poste</p>`;
+    if(view==="poste"){
       html+=recapTable(W);
     }
     if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1])}`+
@@ -518,6 +525,8 @@ document.getElementById("iAdd").onclick=()=>{
   let to=document.getElementById("iTo").value||from; const msg=document.getElementById("iMsg");
   if(!from){msg.textContent="Indiquez au moins la date de début.";return}
   if(to<from){msg.textContent="La date de fin précède la date de début : corrigez l'une des deux.";return}
+  const hits=firstReaHits(who,from,to);
+  if(hits.length){msg.textContent=`Impossible : ${nm(who)} est en 1re semaine de réa la semaine du ${hits.map(m=>fmtLong.format(m)).join(", du ")}. Aucune absence n'y est possible (garde et récupération comprises). Choisissez d'autres dates.`;return}
   state.indispos.push({id:Date.now().toString(36),who,from,to,motif:document.getElementById("iMotif").value,note:document.getElementById("iNote").value.trim()});
   save(); msg.textContent=`Indisponibilité ajoutée pour ${nm(who)} (${workdays(from,to)} jour(s) ouvré(s)).`;
   document.getElementById("iNote").value=""; renderIndispo(); renderPlanning();
@@ -556,10 +565,14 @@ document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes 
 function load2(){state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
 
 /* ---------- Onglets ---------- */
+// Les onglets « par MAR » et « par poste » partagent la même section (période, alertes, export)
+let planView="mar";
 document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) return;
   document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
-  document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+t);};
-["viewFrom","viewWeeks","viewMode","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
+  const sec=t==="poste"?"planning":t;
+  document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+sec);
+  if(sec==="planning"){planView=t==="poste"?"poste":"mar"; renderPlanning()}};
+["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
 
 load(); renderLegend(); load2();
 </script>
