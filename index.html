@@ -320,15 +320,18 @@ function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}
 const nm=j=>state.names[j]||("MAR "+j);
 
 /* ---------- Trame théorique ---------- */
+// Ordre d'entrée en réa à partir de la semaine 1 du cycle
+const ORDER=[5,1,2,4,3];
 function baseWeek(w){ // w = 1..10
-  const k=m5(w), cyc=w<=5?"A":"B", s={};
-  [k,m5(k+1)].forEach(j=>s[j]=Array(5).fill("REA"));  // m5(k+1) entre en réa (1re semaine), k y termine sa 2e semaine
-  s[m5(k+2)]=["CONS","BLOC","ENDO","CONS","ENDO"];   // dernière semaine d'endo avant la réa
-  s[m5(k+3)]=["BLOC","ENDO","CONS","CONSX","ENDO"];  // semaine du milieu
-  s[m5(k+4)]=["CONS","CONS","ENDO","ENDO","ENDO"];   // sortie de réa
+  const P=i=>ORDER[((w-1+i)%5+5)%5], k=w, cyc=w<=5?"A":"B", s={};
+  const first=P(0), next=P(1);
+  [P(-1),first].forEach(j=>s[j]=Array(5).fill("REA"));  // first entre en réa (1re semaine), P(-1) y fait sa 2e semaine
+  s[next]=["CONS","BLOC","ENDO","CONS","ENDO"];   // dernière semaine d'endo avant la réa
+  s[P(2)]=["BLOC","ENDO","CONS","CONSX","ENDO"];  // semaine du milieu
+  s[P(3)]=["CONS","CONS","ENDO","ENDO","ENDO"];   // sortie de réa
   s[6]=Array(5).fill("REA");                          // MAR extérieur fixe en réa
   s[7]=Array(5).fill("");
-  return {k,cyc,s};
+  return {k,cyc,s,first,next};
 }
 function cycleWeek(monday){
   const diff=Math.round((mondayOf(monday)-parse(state.start))/(7*864e5));
@@ -355,10 +358,12 @@ const touched=x=>[...Array(swapLen(x))].map((_,i)=>iso(addDays(parse(x.monday),7
 // vers le consultant. breaks : consultations lib sans bloc possible (alerte critique).
 const LIB=[[1,0],[3,1]];   // [jour de la consultation lib, jour du bloc la semaine suivante]
 function rawRows(monday){
-  const mon=mondayOf(monday), w=cycleWeek(mon), {k,cyc,s}=baseWeek(w);
-  let first=m5(k+1), applied=null;
+  const mon=mondayOf(monday), w=cycleWeek(mon), {k,cyc,s,first:f0}=baseWeek(w);
+  let first=f0, applied=null;
   for(const x of state.reaSwaps){
     const off=Math.round((mon-parse(x.monday))/(7*864e5));
+    // relais inversé : la semaine du milieu, les deux sont déjà en réa, mais c'est X qui y fait sa 1re semaine
+    if(x.kind==="relay"&&off===1){ if(first===x.b) first=x.a; continue }
     if(!swapWeeks(x).includes(off)) continue;
     [s[x.a],s[x.b]]=[s[x.b],s[x.a]];
     if(off===0){applied=x; if(first===x.a) first=x.b; else if(first===x.b) first=x.a}
@@ -435,8 +440,8 @@ function proposeCompensation(sw){
   opts.sort((a,b)=>a.run-b.run||a.proposal.monday.localeCompare(b.proposal.monday));
   return opts.length?{proposal:opts[0].proposal,run:opts[0].run,n:comps.length+1,total,comps}:{none:true,left:total-comps.length,comps};
 }
-// Absence de X en 1re semaine de réa (semaine W, X = m5(k+1)) :
-//  1) de préférence, inverser l'ordre d'entrée avec Z = m5(k+2) (semaine 1 contre semaine 2, sans déséquilibre) ;
+// Absence de X en 1re semaine de réa (semaine W) :
+//  1) de préférence, inverser l'ordre d'entrée avec Z, qui entrait la semaine suivante (semaine 1 contre semaine 2, sans déséquilibre) ;
 //  2) sinon, faire faire la semaine W seule par un MAR en endoscopie (X garde sa semaine W+1, s'il y est disponible) ;
 //  3) sinon, les 2 semaines. Le MAR retenu est celui dont les consultations et blocs tombent le moins sur les jours
 //     d'absence de X ; un rééquilibrage est proposé ensuite.
@@ -444,7 +449,7 @@ function proposeCompensation(sw){
 const owesBloc=(j,mondays)=>state.swaps.some(x=>x.to===j&&x.blocDate&&mondays.includes(iso(mondayOf(parse(x.blocDate)))));
 function proposeReaSwap(monday,x,k){
   const mi=iso(monday), m1=addDays(monday,7), m2=addDays(monday,14);
-  const z=m5(k+2);
+  const z=baseWeek(cycleWeek(monday)).next;
   if(z!==x&&isFreeWeeks([mi,iso(m1),iso(m2)])&&!absDaysIn(z,monday)&&!absDaysIn(x,m1)&&!owesBloc(z,[mi])&&!owesBloc(x,[iso(m1),iso(m2)])) return {monday:mi,a:x,b:z,kind:"relay"};
   const one=!absDaysIn(x,m1)&&!owesBloc(x,[iso(m1)]), weeks=one?[mi]:[mi,iso(m1)];
   if(!isFreeWeeks(weeks)) return null;
@@ -591,7 +596,7 @@ function buildWeek(monday){
     if(alt&&alt.kind==="relay") alerts.unshift(["warn",t+` Proposition : échanger la semaine 1 de ${nm(alt.a)} avec la semaine 2 de ${nm(alt.b)}. ${nm(alt.b)} entre en réa dès cette semaine (semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))}), et ${nm(alt.a)} entre la semaine suivante (semaines du ${fmt.format(addDays(monday,7))} et du ${fmt.format(addDays(monday,14))}). Chacun garde 2 semaines de réa.`,{reaSwap:alt}]);
     else if(alt&&alt.kind==="week") alerts.unshift(["warn",t+` Proposition : ${nm(alt.b)} fait la réa la semaine du ${fmt.format(monday)} à la place de ${nm(alt.a)}, qui reprend son planning d'endoscopie cette semaine-là et garde sa semaine de réa du ${fmt.format(addDays(monday,7))}. Une semaine de rééquilibrage sera proposée ensuite.`,{reaSwap:alt}]);
     else if(alt) alerts.unshift(["warn",t+` Proposition : échanger ${nm(alt.a)} et ${nm(alt.b)} pour les semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))} : ${nm(alt.b)} fait les deux semaines de réa et ${nm(alt.a)} reprend son planning d'endoscopie. Un rééquilibrage sera proposé ensuite.`,{reaSwap:alt}]);
-    else alerts.unshift(["crit",t+` Pas d'échange possible (aucun MAR en endoscopie ces deux semaines n'est disponible toute la 1re semaine). Déplacez cette absence.`]);
+    else alerts.unshift(["crit",t+(isFreeWeeks([iso(monday)])?` Pas d'échange possible (aucun MAR en endoscopie n'est disponible toute cette semaine). Déplacez cette absence.`:` Pas d'échange possible : un autre échange de réa porte déjà sur cette semaine. Annulez-le ou déplacez cette absence.`)]);
   }
   if(applied){
     const c=proposeCompensation(applied);
@@ -959,7 +964,7 @@ function renderRules(){
       `${n(7)} : ajouté automatiquement quand un poste manque, en réa d'abord, sinon en endoscopie. Il ne compense qu'un poste par jour.`,
       `${n(8)} : MAR d'appoint qui ne fait que de l'endoscopie, consultations lib comprises (avec le bloc qui suit). Jamais placé d'office : proposé seulement en cas de blocage (endoscopie incomplète, consultation lib sans remplaçant), à valider avec « Appliquer ». « Régénérer » ne l'applique pas automatiquement.`]],
     ["Cycle et relais",[
-      `Cycle de 10 semaines (cycle A : semaines 1 à 5, cycle B : semaines 6 à 10), qui se répète à partir du lundi de la semaine 1.`,
+      `Cycle de 10 semaines (cycle A : semaines 1 à 5, cycle B : semaines 6 à 10), qui se répète à partir du lundi de la semaine 1 (${fmtLong.format(parse(state.start))}).`,
       `Réa : 3 postes, soit 2 MAR du roulement et ${n(6)}. Endoscopie : 3 MAR du roulement.`,
       `Chaque MAR fait 2 semaines de réa et 3 semaines d'endoscopie par période de 5 semaines. Dans la trame, un MAR entre en réa chaque semaine (relais) : le nouveau fait sa 1re semaine avec celui qui fait sa 2e. Les 2 semaines de réa n'ont pas à se suivre quand un échange l'impose.`]],
     ["Consultations et bloc (après-midi)",[
