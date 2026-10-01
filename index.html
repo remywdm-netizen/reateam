@@ -106,6 +106,9 @@ table.half td[data-j]:hover{background:#f0f6f6}
 .tile{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .tile b{display:block;font-size:1.5rem;line-height:1.1}
 .tile span{font-size:.82rem;color:var(--muted)}
+.cons-day .n,#coOut .n{display:inline-block;border-radius:5px;padding:2px 7px;margin:2px 4px 2px 0;font-size:.85rem}
+.cons-day small{color:var(--muted);margin-right:8px}
+.cons-day tr.wk td{border-top:2px solid var(--line)}
 .note{font-size:.85rem;color:var(--muted);margin:8px 0 0}
 #gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
 #gate form{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:28px 24px;width:100%;max-width:360px;text-align:center}
@@ -144,6 +147,7 @@ header{position:relative}
     <button role="tab" data-tab="planning" aria-selected="true">Planning par MAR</button>
     <button role="tab" data-tab="poste" aria-selected="false">Planning par poste</button>
     <button role="tab" data-tab="prat" aria-selected="false">Par praticien</button>
+    <button role="tab" data-tab="cons" aria-selected="false">Consultations</button>
     <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
     <button role="tab" data-tab="params" aria-selected="false">Paramètres</button>
   </nav>
@@ -185,6 +189,18 @@ header{position:relative}
     <button class="btn ghost" id="prPrint" style="margin-top:18px">Imprimer</button>
   </div>
   <div id="prOut"></div>
+</section>
+
+<!-- RÉCAPITULATIF DES CONSULTATIONS -->
+<section id="tab-cons" hidden>
+  <div class="toolbar">
+    <label>À partir de la semaine du<input type="date" id="coFrom"></label>
+    <label>Nombre de semaines
+      <select id="coWeeks"><option>1</option><option>2</option><option selected>5</option><option>10</option><option>13</option></select>
+    </label>
+    <button class="btn ghost" id="coPrint" style="margin-top:18px">Imprimer</button>
+  </div>
+  <div id="coOut"></div>
 </section>
 
 <!-- INDISPONIBILITÉS -->
@@ -314,7 +330,7 @@ function load(){
   if(!state||!state.start){state={start:DEFAULT_START,names:{...DEFAULT_NAMES},indispos:[]}}
   // Mise en place du planning au 4 janvier 2027 : appliquée une fois aux navigateurs qui avaient une autre date
   if(!state.startInit){state.start=DEFAULT_START; state.startInit=DEFAULT_START}
-  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; state.jcRea=state.jcRea||[];
+  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; delete state.jcRea;
 }
 function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}}
 const nm=j=>state.names[j]||("MAR "+j);
@@ -427,7 +443,7 @@ const QUARTER=13;
 const isFreeWeeks=list=>!state.reaSwaps.some(z=>touched(z).some(t=>list.includes(t)));
 const absDaysIn=(j,m)=>[0,1,2,3,4].filter(d=>indispoOn(j,iso(addDays(m,d)))).length;
 function proposeCompensation(sw){
-  if(sw.comp||sw.kind==="relay"||sw.b===PREF_REA) return null;   // pas de rééquilibrage qui retirerait la réa au MAR privilégié
+  if(sw.comp||sw.kind==="relay") return null;
   const comps=state.reaSwaps.filter(z=>z.comp===sw.id), total=sw.kind==="swap"?2:1;
   if(comps.length>=total) return {done:true,comps,total};
   const inRea=(j,m)=>rawRows(m).s[j][0]==="REA", opts=[];
@@ -447,16 +463,11 @@ function proposeCompensation(sw){
 //     d'absence de X ; un rééquilibrage est proposé ensuite.
 // Un MAR qui doit un bloc (après une consultation lib reprise) pendant ces semaines ne peut pas passer en réa
 const owesBloc=(j,mondays)=>state.swaps.some(x=>x.to===j&&x.blocDate&&mondays.includes(iso(mondayOf(parse(x.blocDate)))));
-// MAR dont la présence en réa est privilégiée quand il est disponible
-const PREF_REA=5;
 function proposeReaSwap(monday,x,k){
   const mi=iso(monday), m1=addDays(monday,7), m2=addDays(monday,14);
   const z=baseWeek(cycleWeek(monday)).next;
   const relay=z!==x&&isFreeWeeks([mi,iso(m1),iso(m2)])&&!absDaysIn(z,monday)&&!absDaysIn(x,m1)&&!owesBloc(z,[mi])&&!owesBloc(x,[iso(m1),iso(m2)])?{monday:mi,a:x,b:z,kind:"relay"}:null;
-  if(relay&&z===PREF_REA) return relay;
-  const sw=proposeReaSwapTo(monday,x);
-  if(sw&&sw.b===PREF_REA) return sw;
-  return relay||sw;
+  return relay||proposeReaSwapTo(monday,x);
 }
 function proposeReaSwapTo(monday,x){
   const mi=iso(monday), m1=addDays(monday,7);
@@ -468,7 +479,7 @@ function proposeReaSwapTo(monday,x){
   // candidats : MAR du roulement en endoscopie la (ou les) semaine(s) concernée(s)
   const cand=[1,2,3,4,5].filter(y=>y!==x&&s1[y][0]!=="REA"&&(one||s2[y][0]!=="REA")&&!absDaysIn(y,monday)&&!owesBloc(y,weeks))
     .map(y=>({y,conf:days.filter(([dt,s,d])=>indispoOn(x,iso(dt))&&busy(s[y][d])).length,abs:days.filter(([dt])=>indispoOn(y,iso(dt))).length}))
-    .sort((a,b)=>(b.y===PREF_REA)-(a.y===PREF_REA)||a.conf-b.conf||a.abs-b.abs||a.y-b.y);
+    .sort((a,b)=>a.conf-b.conf||a.abs-b.abs||a.y-b.y);
   return cand.length?{monday:mi,a:x,b:cand[0].y,kind:one?"week":"swap"}:null;
 }
 
@@ -542,7 +553,6 @@ function buildWeek(monday){
     }
     cell[8]={role:"",plan:""}; {const ia=indispoOn(8,di); if(ia) cell[8].ind=ia}
     applySwaps(cell,di); applyAfr(cell,di);
-    for(const x of state.jcRea) if(x.date===di&&cell[PREF_REA].role==="ENDO"&&!cell[PREF_REA].ind){cell[PREF_REA].role=cell[PREF_REA].plan="REA";cell[PREF_REA].jcRea=x.id}
     // REA_CONS (2e semaine de réa + consultation lib) compte en réa : il y est le matin
     let rea=[1,2,3,4,5,6].filter(j=>cell[j].role==="REA"||cell[j].role==="REA_CONS").length;
     let endo=[1,2,3,4,5,8].filter(j=>isEndo(cell[j].role)).length;
@@ -556,9 +566,8 @@ function buildWeek(monday){
     if(cell[7].ind&&(rea<3||endo<3)) alerts.push(["crit",`${dl} : renfort ${nm(7)} nécessaire mais indisponible.`]);
     if(endo<3) alerts.push(["crit",`${dl} : endoscopie à ${endo} MAR (3 attendus).`+(afrFree(cell)?` Proposition : ${nm(8)} en endoscopie ce jour-là.`:""),afrFree(cell)?{afr:{date:di,role:"ENDO"}}:null]);
     if(rea<3){
-      const cand=[1,2,3,4,5].filter(j=>cell[j].role==="ENDO").map(nm);
-      const jc=cell[PREF_REA].role==="ENDO"&&!cell[PREF_REA].ind;
-      alerts.push([rea<2?"crit":"warn",`${dl} : réa à ${rea} MAR (3 attendus).`+(jc?` Proposition : ${nm(PREF_REA)} passe en réa ce jour-là.`:cand.length?` Renfort possible depuis l'endo : ${cand.join(", ")}.`:""),jc?{jcRea:{date:di}}:null]);
+      // un manque ponctuel en réa n'est jamais compensé par un MAR de l'endoscopie
+      alerts.push([rea<2?"crit":"warn",`${dl} : réa à ${rea} MAR (3 attendus).`]);
     }
     // Consultations et blocs perdus
     for(let j=1;j<=7;j++){
@@ -593,7 +602,6 @@ function buildWeek(monday){
     // Remplacements appliqués : rappel avec possibilité d'annuler
     state.swaps.filter(x=>x.date===di&&cell[x.from].replacedBy===x.to).forEach(x=>alerts.push(["info",`${dl} ap-m : ${nm(x.to)} remplace ${nm(x.from)} en consultation lib`+(x.blocDate?` et au bloc du ${fmtDay.format(parse(x.blocDate))} ap-m`:"")+".",{unswap:x.id}]));
     state.afr.filter(a=>(a.date===di||a.blocDate===di)&&cell[8].afr===a.id).forEach(a=>alerts.push(["info",a.blocDate===di?`${dl} ap-m : ${nm(8)} au bloc (suite de sa consultation lib).`:a.from?`${dl} ap-m : ${nm(8)} remplace ${nm(a.from)} en consultation lib et au bloc du ${fmtDay.format(parse(a.blocDate))} ap-m.`:`${dl} : ${nm(8)} en endoscopie (appoint).`,a.date===di?{unafr:a.id}:null]));
-    if(cell[PREF_REA].jcRea) alerts.push(["info",`${dl} : ${nm(PREF_REA)} en réa ce jour-là.`,{unjcRea:cell[PREF_REA].jcRea}]);
     const cons=[1,2,3,4,5,6,7,8].filter(j=>["CONS","CONSX","REA_CONS"].includes(cell[j].role)).length;
     days.push({date,di,cell,rea,endo,cons});
   }
@@ -606,8 +614,8 @@ function buildWeek(monday){
     let t=`${nm(first)} est en 1re semaine de réa, où aucune absence n'est possible (${motifs} : ${jours}).`;
     const alt=proposeReaSwap(monday,first,k);
     if(alt&&alt.kind==="relay") alerts.unshift(["warn",t+` Proposition : échanger la semaine 1 de ${nm(alt.a)} avec la semaine 2 de ${nm(alt.b)}. ${nm(alt.b)} entre en réa dès cette semaine (semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))}), et ${nm(alt.a)} entre la semaine suivante (semaines du ${fmt.format(addDays(monday,7))} et du ${fmt.format(addDays(monday,14))}). Chacun garde 2 semaines de réa.`,{reaSwap:alt}]);
-    else if(alt&&alt.kind==="week") alerts.unshift(["warn",t+` Proposition : ${nm(alt.b)} fait la réa la semaine du ${fmt.format(monday)} à la place de ${nm(alt.a)}, qui reprend son planning d'endoscopie cette semaine-là et garde sa semaine de réa du ${fmt.format(addDays(monday,7))}.`+(alt.b===PREF_REA?"":" Une semaine de rééquilibrage sera proposée ensuite."),{reaSwap:alt}]);
-    else if(alt) alerts.unshift(["warn",t+` Proposition : échanger ${nm(alt.a)} et ${nm(alt.b)} pour les semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))} : ${nm(alt.b)} fait les deux semaines de réa et ${nm(alt.a)} reprend son planning d'endoscopie.`+(alt.b===PREF_REA?"":" Un rééquilibrage sera proposé ensuite."),{reaSwap:alt}]);
+    else if(alt&&alt.kind==="week") alerts.unshift(["warn",t+` Proposition : ${nm(alt.b)} fait la réa la semaine du ${fmt.format(monday)} à la place de ${nm(alt.a)}, qui reprend son planning d'endoscopie cette semaine-là et garde sa semaine de réa du ${fmt.format(addDays(monday,7))}. Une semaine de rééquilibrage sera proposée ensuite.`,{reaSwap:alt}]);
+    else if(alt) alerts.unshift(["warn",t+` Proposition : échanger ${nm(alt.a)} et ${nm(alt.b)} pour les semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))} : ${nm(alt.b)} fait les deux semaines de réa et ${nm(alt.a)} reprend son planning d'endoscopie. Un rééquilibrage sera proposé ensuite.`,{reaSwap:alt}]);
     else alerts.unshift(["crit",t+(isFreeWeeks([iso(monday)])?` Pas d'échange possible (aucun MAR en endoscopie n'est disponible toute cette semaine). Déplacez cette absence.`:` Pas d'échange possible : un autre échange de réa porte déjà sur cette semaine. Annulez-le ou déplacez cette absence.`)]);
   }
   if(applied){
@@ -716,8 +724,6 @@ function renderPlanning(){
     if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1].replace(/\.\.(\s|$)/g,".$1"))}`+
       (a[2]&&a[2].swap?` <button class="btn small" data-swap='${esc(JSON.stringify(a[2].swap))}'>Appliquer</button>`:"")+
       (a[2]&&a[2].unswap?` <button class="btn small ghost" data-unswap="${a[2].unswap}">Annuler</button>`:"")+
-      (a[2]&&a[2].jcRea?` <button class="btn small" data-jcrea='${esc(JSON.stringify(a[2].jcRea))}'>Appliquer</button>`:"")+
-      (a[2]&&a[2].unjcRea?` <button class="btn small ghost" data-unjcrea="${a[2].unjcRea}">Annuler</button>`:"")+
       (a[2]&&a[2].afr?` <button class="btn small" data-afr='${esc(JSON.stringify(a[2].afr))}'>Appliquer</button>`:"")+
       (a[2]&&a[2].unafr?` <button class="btn small ghost" data-unafr="${a[2].unafr}">Annuler</button>`:"")+
       (a[2]&&a[2].reaSwap?` <button class="btn small" data-reaswap='${esc(JSON.stringify(a[2].reaSwap))}'>Appliquer</button>`:"")+
@@ -726,6 +732,7 @@ function renderPlanning(){
   }
   document.getElementById("weeks").innerHTML=html||`<p class="empty">Aucune alerte sur la période affichée.</p>`;
   if(!document.getElementById("tab-prat").hidden) renderPrat();
+  if(!document.getElementById("tab-cons").hidden) renderCons();
   document.getElementById("summary").innerHTML=nAl?`${nAl} alerte${nAl>1?"s":""}, dont <strong>${nCrit} critique${nCrit>1?"s":""}</strong>`:"Aucune alerte sur la période";
 }
 
@@ -773,6 +780,46 @@ function renderPrat(){
 ["prWho","prFrom","prWeeks"].forEach(id=>document.getElementById(id).onchange=renderPrat);
 document.getElementById("prPrint").onclick=()=>window.print();
 
+/* ---------- Récapitulatif des consultations ---------- */
+// Par jour : consultations assurées (lib à part, avec le bloc qui suit), consultations à confier à un extérieur,
+// puis totaux par MAR sur la période
+function renderCons(){
+  const fi=document.getElementById("coFrom"); if(!fi.value) fi.value=state.start;
+  const from=mondayOf(parse(fi.value)), n=+document.getElementById("coWeeks").value;
+  const tot={}, chip=(j,cls)=>`<span class="n t-${cls}">${esc(nm(j))}</span>`;
+  let rows="", nCons=0, nLib=0, nExt=0;
+  for(let i=0;i<n;i++){
+    const W=buildWeek(addDays(from,7*i));
+    W.days.forEach((D,d)=>{
+      if(!CONS_NEEDED[d]) return;
+      const simple=[], lib=[];
+      for(let j=1;j<=8;j++){
+        const r=D.cell[j].role;
+        if(!["CONS","CONSX","REA_CONS"].includes(r)) continue;
+        (isLib(r,d)?lib:simple).push(j);
+        tot[j]=tot[j]||{c:0,l:0}; isLib(r,d)?tot[j].l++:tot[j].c++;
+      }
+      const libNeed=d===1||d===3?1:0, ext=Math.max(0,CONS_NEEDED[d]-simple.length-lib.length);
+      nCons+=simple.length; nLib+=lib.length; nExt+=ext;
+      const bd=addDays(D.date,d===1?6:5);
+      rows+=`<tr${d===0&&i?' class="wk"':""}><td><strong>${fmtWd.format(D.date)}</strong></td>`+
+        `<td>${simple.map(j=>chip(j,"CONS")).join("")||(CONS_NEEDED[d]-libNeed?"—":"")}</td>`+
+        `<td>${libNeed?(lib.length?lib.map(j=>chip(j,"CONSX")+`<small> bloc ${fmtWd.format(bd)} ap-m</small>`).join(""):'<span class="status todo">non assurée</span>'):""}</td>`+
+        `<td>${ext?`<span class="status todo">${ext} à confier à un extérieur</span>`:'<span class="status ok">complet</span>'}</td></tr>`;
+    });
+  }
+  const per=Object.keys(tot).map(Number).sort((a,b)=>a-b);
+  document.getElementById("coOut").innerHTML=
+    `<div class="panel"><h2 style="margin-bottom:4px">Consultations</h2><p class="note" style="margin:0 0 14px">Du ${fmtLong.format(from)} au ${fmtLong.format(addDays(from,7*n-3))}. Consultations l'après-midi : lundi ×2, mardi ×1 (lib), mercredi ×1, jeudi ×2 (dont 1 lib).</p>`+
+    `<div class="tiles"><div class="tile"><b>${nCons}</b><span>consultations</span></div><div class="tile"><b>${nLib}</b><span>consultations lib</span></div><div class="tile"><b>${nExt}</b><span>à confier à un extérieur</span></div></div>`+
+    `<div class="scroll"><table class="list"><thead><tr><th>MAR</th><th class="num">Consultations</th><th class="num">Consultations lib</th><th class="num">Total</th></tr></thead><tbody>`+
+      (per.length?per.map(j=>`<tr><td><strong>${esc(nm(j))}</strong></td><td class="num">${tot[j].c}</td><td class="num">${tot[j].l}</td><td class="num">${tot[j].c+tot[j].l}</td></tr>`).join(""):`<tr><td colspan="4" class="empty">Aucune consultation sur la période.</td></tr>`)+
+    `</tbody></table></div></div>`+
+    `<div class="panel"><h2>Par jour</h2><div class="scroll"><table class="list cons-day"><thead><tr><th>Jour</th><th>Consultations</th><th>Consultation lib (et bloc qui suit)</th><th>Statut</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+["coFrom","coWeeks"].forEach(id=>document.getElementById(id).onchange=renderCons);
+document.getElementById("coPrint").onclick=()=>window.print();
+
 /* ---------- CSV ---------- */
 document.getElementById("csvBtn").onclick=()=>{
   const rows=[["Semaine","Cycle","Date","Jour","MAR","Matin","Après-midi","Motif indisponibilité"]];
@@ -803,10 +850,9 @@ document.getElementById("regenBtn").onclick=()=>{
   const from=mondayOf(parse(document.getElementById("viewFrom").value||state.start)), n=+document.getElementById("viewWeeks").value+QUARTER;
   for(let guard=0;guard<200;guard++){
     let act=null;
-    for(let i=0;i<n&&!act;i++){const W=buildWeek(addDays(from,7*i)); act=W.alerts.map(a=>a[2]).find(x=>x&&(x.reaSwap||x.swap||x.jcRea))}
+    for(let i=0;i<n&&!act;i++){const W=buildWeek(addDays(from,7*i)); act=W.alerts.map(a=>a[2]).find(x=>x&&(x.reaSwap||x.swap))}
     if(!act) break;
     if(act.reaSwap) state.reaSwaps.push({id:Date.now().toString(36)+guard,...act.reaSwap});
-    else if(act.jcRea) state.jcRea.push({id:Date.now().toString(36)+guard,...act.jcRea});
     else state.swaps.push({id:Date.now().toString(36)+guard,...act.swap});
     added++;
   }
@@ -895,8 +941,6 @@ document.getElementById("weeks").onclick=e=>{
   }
   const b=e.target.closest("button"); if(!b) return;
   if(b.dataset.swap){state.swaps.push({id:Date.now().toString(36),...JSON.parse(b.dataset.swap)}); save(); renderPlanning()}
-  if(b.dataset.jcrea){state.jcRea.push({id:Date.now().toString(36),...JSON.parse(b.dataset.jcrea)}); save(); renderPlanning()}
-  if(b.dataset.unjcrea){state.jcRea=state.jcRea.filter(x=>x.id!==b.dataset.unjcrea); save(); renderPlanning()}
   if(b.dataset.afr){state.afr.push({id:Date.now().toString(36),...JSON.parse(b.dataset.afr)}); save(); renderPlanning()}
   if(b.dataset.unafr){state.afr=state.afr.filter(x=>x.id!==b.dataset.unafr); save(); renderPlanning()}
   if(b.dataset.reaswap){state.reaSwaps.push({id:Date.now().toString(36),...JSON.parse(b.dataset.reaswap)}); save(); renderPlanning()}
@@ -1002,7 +1046,7 @@ function renderRules(){
       `Une récupération s'ajoute ou se retire d'un clic sur la case du MAR dans Planning par MAR.`,
       `Bouton « Régénérer le planning » : après une mise à jour des indisponibilités, il retire les échanges devenus inutiles et applique toutes les propositions.`]],
     ["Alertes",[
-      `Critique : réa à moins de 2, endoscopie incomplète, renfort nécessaire mais indisponible, absence en 1re semaine de réa sans échange possible, consultation lib sans remplaçant.`,
+      `Critique : réa à moins de 2 (jamais compensée par un MAR de l'endoscopie), endoscopie incomplète, renfort nécessaire mais indisponible, absence en 1re semaine de réa sans échange possible, consultation lib sans remplaçant.`,
       `À vérifier : réa à 2 compensée, consultation à confier à un extérieur, bloc imposé non assuré, rééquilibrage à faire. Critique aussi : consultation lib dont personne ne peut assurer le bloc qui suit.`]],
   ];
   document.getElementById("pRules").innerHTML=R.map(([h,l])=>`<h3>${h}</h3><ul>${l.map(x=>`<li>${x}</li>`).join("")}</ul>`).join("");
@@ -1028,7 +1072,7 @@ document.getElementById("impFile").onchange=e=>{const f=e.target.files[0]; if(!f
   r.readAsText(f); e.target.value="";};
 document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes les indisponibilités, tous les remplacements et tous les échanges de réa, et remettre les paramètres par défaut ?")) return;
   try{localStorage.removeItem(STORE)}catch(e){} state=null; load(); load2();};
-function load2(){ if(typeof fillOffSelect==="function") setTimeout(fillOffSelect);state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; state.jcRea=state.jcRea||[]; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
+function load2(){ if(typeof fillOffSelect==="function") setTimeout(fillOffSelect);state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; delete state.jcRea; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
 
 /* ---------- Onglets ---------- */
 // Les onglets « par MAR » et « par poste » partagent la même section (période, alertes, export)
@@ -1037,6 +1081,7 @@ document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) r
   document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
   const sec=t==="poste"?"planning":t;
   if(t==="prat") renderPrat();
+  if(t==="cons") renderCons();
   document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+sec);
   if(sec==="planning"){planView=t==="poste"?"poste":"mar"; renderPlanning()}};
 ["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
