@@ -713,7 +713,7 @@ function renderPlanning(){
     if(view==="poste"){
       html+=recapTable(W);
     }
-    if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1])}`+
+    if(W.alerts.length) html+=`<ul class="alerts">`+W.alerts.map(a=>`<li class="${a[0]}">${esc(a[1].replace(/\.\.(\s|$)/g,".$1"))}`+
       (a[2]&&a[2].swap?` <button class="btn small" data-swap='${esc(JSON.stringify(a[2].swap))}'>Appliquer</button>`:"")+
       (a[2]&&a[2].unswap?` <button class="btn small ghost" data-unswap="${a[2].unswap}">Annuler</button>`:"")+
       (a[2]&&a[2].jcRea?` <button class="btn small" data-jcrea='${esc(JSON.stringify(a[2].jcRea))}'>Appliquer</button>`:"")+
