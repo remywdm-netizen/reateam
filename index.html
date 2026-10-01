@@ -81,18 +81,6 @@ td.crit{color:var(--crit);font-weight:700}
 .people{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
 .chip{display:inline-block;padding:2px 8px;border-radius:10px;background:var(--accent-soft);font-size:.8rem;margin-left:6px}
 .note{font-size:.85rem;color:var(--muted);margin:8px 0 0}
-.dgrid{min-width:560px}
-.dgrid td{padding:4px}
-.dcell{font:inherit;font-size:.82rem;width:100%;min-height:44px;border:1px solid var(--line);border-radius:6px;padding:4px;line-height:1.2;cursor:pointer;color:var(--ink)}
-.dcell small{display:block;font-size:.72rem;color:var(--muted)}
-.dcell.pick.REA{background:var(--rea);color:var(--rea-ink)}
-.dcell.pick.ENDO{background:var(--endo)}
-.dcell.def{outline:2px dashed var(--muted);outline-offset:-4px}
-.dcell.on{background:var(--off);color:#333;font-weight:700;box-shadow:inset 0 0 0 3px var(--accent)}
-.dcell:disabled{cursor:not-allowed;background:#f4f6f6;color:var(--muted);border-style:dotted}
-.status{display:inline-block;padding:3px 10px;border-radius:10px;font-size:.82rem;font-weight:700}
-.status.ok{background:var(--endo);color:#1d5b27}
-.status.todo{background:var(--renfort);color:#6b4d00}
 #gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
 #gate form{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:28px 24px;width:100%;max-width:360px;text-align:center}
 #gate h1{font-size:1.25rem;margin:0 0 6px}
@@ -106,7 +94,7 @@ body:not(.locked)>#gate{display:none}
 header{position:relative}
 @media print{
   #gate,.logout{display:none!important}
-  header nav,.toolbar,#tab-indispo,#tab-desid,#tab-params{display:none!important}
+  header nav,.toolbar,#tab-indispo,#tab-params{display:none!important}
   body{background:#fff} .week{break-inside:avoid;border-color:#999}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -129,7 +117,6 @@ header{position:relative}
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
     <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
-    <button role="tab" data-tab="desid" aria-selected="false">Desiderata</button>
     <button role="tab" data-tab="params" aria-selected="false">Paramètres</button>
   </nav>
 </header>
@@ -179,31 +166,6 @@ header{position:relative}
       </label>
     </div>
     <div class="scroll"><div id="iList"></div></div>
-  </div>
-</section>
-
-<!-- DESIDERATA -->
-<section id="tab-desid" hidden>
-  <div class="panel">
-    <h2>Choisir ses jours off</h2>
-    <div class="row">
-      <label>MAR à temps partiel<select id="dWho"></select></label>
-      <label>Période de 5 semaines<select id="dBlock"></select></label>
-      <button class="btn ghost small" id="dPrev" aria-label="Période précédente">◀</button>
-      <button class="btn ghost small" id="dNext" aria-label="Période suivante">▶</button>
-    </div>
-    <p class="note">Cliquez sur un jour de réa ou d'endoscopie pour le demander en off, cliquez à nouveau pour l'annuler. Les jours de consultation ou de bloc imposé ne peuvent pas être off. Un seul temps partiel peut être off par jour, car l'extérieur renfort ne compense qu'un poste. Les pointillés marquent la répartition par défaut.</p>
-    <div class="row" style="margin:14px 0 10px;align-items:center">
-      <span id="dCount"></span>
-      <button class="btn ghost small" id="dDefault">Partir de la répartition par défaut</button>
-      <button class="btn small danger" id="dClear">Effacer les souhaits</button>
-    </div>
-    <div class="scroll"><div id="dGrid"></div></div>
-    <p class="note" id="dMsg" role="status"></p>
-  </div>
-  <div class="panel">
-    <h2>Desiderata enregistrés</h2>
-    <div class="scroll"><div id="dList"></div></div>
   </div>
 </section>
 
@@ -281,13 +243,13 @@ let state;
 function load(){
   try{const raw=localStorage.getItem(STORE); if(raw){state=JSON.parse(raw)}}catch(e){state=null}
   if(!state||!state.start){state={start:iso(mondayOf(new Date())),names:{...DEFAULT_NAMES},indispos:[]}}
-  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.desid=state.desid||{};
+  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[];
 }
 function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}}
 const nm=j=>state.names[j]||("MAR "+j);
 
 /* ---------- Trame théorique ---------- */
-function baseWeek(w){ // w = 1..10, trame sans les jours off
+function baseWeek(w){ // w = 1..10
   const k=m5(w), cyc=w<=5?"A":"B", s={};
   [k,m5(k+1)].forEach(j=>s[j]=Array(5).fill("REA"));
   s[m5(k+2)]=["CONS","BLOC","ENDO","CONS","ENDO"];   // dernière semaine d'endo avant la réa
@@ -295,41 +257,28 @@ function baseWeek(w){ // w = 1..10, trame sans les jours off
   s[m5(k+4)]=["CONS","CONS","ENDO","ENDO","ENDO"];   // sortie de réa
   s[6]=Array(5).fill("REA");                          // MAR extérieur fixe en réa
   s[7]=Array(5).fill("");
+  const add=(o)=>{for(const j in o)for(const [wk,d] of o[j]) if(wk===k){ if(!["REA","ENDO"].includes(s[j][d])) console.error("conflit off",w,j,d); s[j][d]="OFF"}};
+  add(OFF_A); if(cyc==="B") add(OFF_B);
   return {k,cyc,s};
 }
 function cycleWeek(monday){
   const diff=Math.round((mondayOf(monday)-parse(state.start))/(7*864e5));
   return ((diff%10)+10)%10+1;
 }
-/* ---------- Jours off : répartition par défaut ou desiderata ---------- */
-// Période de 5 semaines (moitié A ou B du cycle) contenant ce lundi
-function blockOf(monday){const w=cycleWeek(monday);return {start:iso(addDays(mondayOf(monday),-7*((w-1)%5))),cyc:w<=5?"A":"B"}}
-function quota(j,cyc){return OFF_A[j]?OFF_A[j].length+(cyc==="B"?(OFF_B[j]||[]).length:0):0}
-function defaultOffs(j,b){return [...(OFF_A[j]||[]),...(b.cyc==="B"?OFF_B[j]||[]:[])].map(([wk,d])=>iso(addDays(parse(b.start),7*(wk-1)+d)))}
-function desidOf(j,b){return state.desid[b.start+"|"+j]||[]}
-// Les desiderata remplacent la répartition par défaut dès que le quota est atteint
-function effOffs(j,b){const q=quota(j,b.cyc),d=desidOf(j,b);return q&&d.length===q?{days:d,desid:true}:{days:defaultOffs(j,b),desid:false}}
-const PARTIELS=[2,3,4,5];
-const offable=r=>r==="REA"||r==="ENDO";
-
 function indispoOn(j,dateIso){return state.indispos.find(i=>+i.who===j&&i.from<=dateIso&&dateIso<=i.to)}
 const isEndo=r=>["ENDO","CONS","CONSX","BLOC","RENFORT"].includes(r);
 
 /* ---------- Calcul d'une semaine réelle ---------- */
 function buildWeek(monday){
-  const w=cycleWeek(monday), {k,cyc,s}=baseWeek(w), b=blockOf(monday);
-  const offs={}; PARTIELS.forEach(j=>offs[j]=effOffs(j,b));
+  const w=cycleWeek(monday), {k,cyc,s}=baseWeek(w);
   const days=[], alerts=[];
   for(let d=0;d<5;d++){
     const date=addDays(monday,d), di=iso(date), cell={};
     for(let j=1;j<=7;j++){
-      let plan=s[j][d]; const ind=indispoOn(j,di);
-      if(offs[j]&&offs[j].days.includes(di)&&offable(plan)) plan="OFF";
+      const plan=s[j][d]; const ind=indispoOn(j,di);
       cell[j]=(ind&&plan!=="OFF")?{role:plan?"INDISPO":"",plan,ind}:{role:plan,plan};
       if(ind&&!plan) cell[j].ind=ind; // E2 indisponible
     }
-    const nOff=PARTIELS.filter(j=>cell[j].plan==="OFF");
-    if(nOff.length>1) alerts.push(["crit",`${DAYS[d]} : ${nOff.map(nm).join(" et ")} sont off le même jour, le renfort ne peut compenser qu'un poste. Modifiez les desiderata.`]);
     let rea=[1,2,3,4,5,6].filter(j=>cell[j].role==="REA").length;
     let endo=[1,2,3,4,5].filter(j=>isEndo(cell[j].role)).length;
     const dl=DAYS[d], e2free=()=>!cell[7].role&&!cell[7].ind;
@@ -442,82 +391,6 @@ document.getElementById("iList").onclick=e=>{const id=e.target.dataset.del; if(!
   state.indispos=state.indispos.filter(i=>i.id!==id); save(); renderIndispo(); renderPlanning();};
 document.getElementById("iFilter").onchange=renderIndispo;
 
-/* ---------- Desiderata ---------- */
-const fmtShort=new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short",year:"numeric"});
-let dStart; // lundi de la période affichée, fixé par load2()
-function blockLabel(start){const b=blockOf(parse(start));return `Cycle ${b.cyc} · ${fmt.format(parse(start))} – ${fmtShort.format(addDays(parse(start),32))}`}
-function fillDesidSelects(){
-  const who=document.getElementById("dWho"), v=who.value||"2";
-  who.innerHTML=PARTIELS.map(j=>`<option value="${j}">${esc(nm(j))} (${QUOT[j]})</option>`).join(""); who.value=v;
-  const cur=blockOf(new Date()).start; let opts="";
-  for(let i=-2;i<=10;i++){const st=iso(addDays(parse(cur),35*i));opts+=`<option value="${st}">${blockLabel(st)}${i===0?" (en cours)":""}</option>`}
-  const sel=document.getElementById("dBlock"); sel.innerHTML=opts;
-  if(![...sel.options].some(o=>o.value===dStart)) sel.insertAdjacentHTML("afterbegin",`<option value="${dStart}">${blockLabel(dStart)}</option>`);
-  sel.value=dStart;
-}
-function renderDesid(){
-  const j=+document.getElementById("dWho").value, b=blockOf(parse(dStart)), q=quota(j,b.cyc);
-  const sel=desidOf(j,b), def=defaultOffs(j,b), taken={};
-  PARTIELS.filter(o=>o!==j).forEach(o=>effOffs(o,b).days.forEach(di=>taken[di]=o));
-  const n=sel.length;
-  document.getElementById("dCount").innerHTML=`<strong>${n} / ${q}</strong> jour${q>1?"s":""} off sur cette période (cycle ${b.cyc}). `+
-    (n===q?`<span class="status ok">Desiderata appliqués au planning</span>`:`<span class="status todo">${n?"Incomplet : répartition":"Répartition"} par défaut appliquée</span>`);
-  let h=`<table class="dgrid"><thead><tr><th scope="col">Semaine</th>`+DAYS.map(x=>`<th scope="col">${x}</th>`).join("")+`</tr></thead><tbody>`;
-  for(let i=0;i<5;i++){
-    const mon=addDays(parse(dStart),7*i), {s}=baseWeek(cycleWeek(mon));
-    h+=`<tr><th scope="row">${fmt.format(mon)}<small>S${cycleWeek(mon)}</small></th>`;
-    for(let d=0;d<5;d++){
-      const di=iso(addDays(mon,d)), r=s[j][d], ind=indispoOn(j,di), isDef=def.includes(di)?" def":"";
-      const sub=`<small>${fmt.format(addDays(mon,d))}${ind?" · "+esc(ind.motif):""}</small>`;
-      let btn;
-      if(sel.includes(di)) btn=`<button class="dcell on" data-d="${di}" aria-pressed="true">Off souhaité${sub}</button>`;
-      else if(!offable(r)) btn=`<button class="dcell" disabled>${LABEL[r]}${sub}</button>`;
-      else if(taken[di]) btn=`<button class="dcell" disabled>Off de ${esc(nm(taken[di]))}${sub}</button>`;
-      else btn=`<button class="dcell pick ${r}${isDef}" data-d="${di}" aria-pressed="false">${LABEL[r]}${sub}</button>`;
-      h+=`<td>${btn}</td>`;
-    }
-    h+=`</tr>`;
-  }
-  document.getElementById("dGrid").innerHTML=h+`</tbody></table>`;
-  renderDesidList();
-}
-function renderDesidList(){
-  const keys=Object.keys(state.desid).filter(k=>state.desid[k].length).sort();
-  if(!keys.length){document.getElementById("dList").innerHTML=`<p class="empty">Aucun desiderata saisi : la répartition par défaut s'applique à tous les temps partiels.</p>`;return}
-  document.getElementById("dList").innerHTML=`<table class="list"><thead><tr><th>MAR</th><th>Période</th><th>Jours souhaités</th><th>Statut</th><th></th></tr></thead><tbody>`+
-    keys.map(k=>{const [st,j]=k.split("|"), b=blockOf(parse(st)), q=quota(+j,b.cyc), L=state.desid[k].slice().sort();
-      return `<tr><td><strong>${esc(nm(+j))}</strong></td><td>${blockLabel(st)}</td><td>${L.map(x=>fmt.format(parse(x))).join(", ")}</td><td>${L.length===q?`<span class="status ok">Appliqué</span>`:`<span class="status todo">${L.length} / ${q}</span>`}</td>`+
-        `<td><button class="btn small ghost" data-open="${k}">Modifier</button> <button class="btn small danger" data-deld="${k}">Supprimer</button></td></tr>`}).join("")+`</tbody></table>`;
-}
-function setDesid(j,list){const k=dStart+"|"+j; if(list.length) state.desid[k]=list; else delete state.desid[k]; save(); renderDesid(); renderPlanning()}
-document.getElementById("dGrid").onclick=e=>{
-  const bt=e.target.closest("button[data-d]"); if(!bt) return;
-  const j=+document.getElementById("dWho").value, b=blockOf(parse(dStart)), q=quota(j,b.cyc), di=bt.dataset.d;
-  const sel=desidOf(j,b).slice(), msg=document.getElementById("dMsg");
-  if(sel.includes(di)){sel.splice(sel.indexOf(di),1); msg.textContent=`${fmtLong.format(parse(di))} retiré des souhaits.`}
-  else if(sel.length>=q){msg.textContent=`Les ${q} jours off de cette période sont déjà choisis : retirez-en un avant d'en ajouter un autre.`;return}
-  else{sel.push(di); msg.textContent=`${fmtLong.format(parse(di))} ajouté (${sel.length} / ${q}).`}
-  setDesid(j,sel);
-};
-document.getElementById("dDefault").onclick=()=>{
-  const j=+document.getElementById("dWho").value, b=blockOf(parse(dStart)), taken=new Set();
-  PARTIELS.filter(o=>o!==j).forEach(o=>effOffs(o,b).days.forEach(di=>taken.add(di)));
-  const list=defaultOffs(j,b).filter(di=>!taken.has(di));
-  document.getElementById("dMsg").textContent="Répartition par défaut reprise : modifiez les jours qui ne vous conviennent pas.";
-  setDesid(j,list);
-};
-document.getElementById("dClear").onclick=()=>{document.getElementById("dMsg").textContent="Souhaits effacés : la répartition par défaut s'applique.";setDesid(+document.getElementById("dWho").value,[])};
-document.getElementById("dWho").onchange=()=>{document.getElementById("dMsg").textContent="";renderDesid()};
-document.getElementById("dBlock").onchange=e=>{dStart=e.target.value;document.getElementById("dMsg").textContent="";renderDesid()};
-const shiftBlock=n=>{dStart=iso(addDays(parse(dStart),35*n));fillDesidSelects();document.getElementById("dMsg").textContent="";renderDesid()};
-document.getElementById("dPrev").onclick=()=>shiftBlock(-1);
-document.getElementById("dNext").onclick=()=>shiftBlock(1);
-document.getElementById("dList").onclick=e=>{
-  const o=e.target.dataset.open, del=e.target.dataset.deld;
-  if(del){delete state.desid[del]; save(); renderDesid(); renderPlanning(); return}
-  if(o){const [st,j]=o.split("|"); dStart=st; fillDesidSelects(); document.getElementById("dWho").value=j; renderDesid(); document.getElementById("tab-desid").scrollIntoView({behavior:"smooth"})}
-};
-
 /* ---------- Paramètres ---------- */
 function renderParams(){
   document.getElementById("pStart").value=state.start;
@@ -526,20 +399,20 @@ function renderParams(){
 document.getElementById("pStart").onchange=e=>{
   if(!e.target.value) return; const mon=mondayOf(parse(e.target.value)); state.start=iso(mon); e.target.value=state.start;
   document.getElementById("pMsg").textContent=`Semaine 1 du cycle fixée au lundi ${fmtLong.format(mon)}.`;
-  document.getElementById("viewFrom").value=state.start; dStart=blockOf(new Date()).start; save(); fillDesidSelects(); renderDesid(); renderPlanning();};
+  document.getElementById("viewFrom").value=state.start; save(); renderPlanning();};
 document.getElementById("pNames").oninput=e=>{const j=e.target.dataset.name; if(!j) return;
-  state.names[j]=e.target.value.trim()||DEFAULT_NAMES[j]; save(); fillSelects(); fillDesidSelects(); renderIndispo(); renderDesid(); renderPlanning();};
+  state.names[j]=e.target.value.trim()||DEFAULT_NAMES[j]; save(); fillSelects(); renderIndispo(); renderPlanning();};
 document.getElementById("expBtn").onclick=()=>{
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:"application/json"}));
   a.download=`planning-mar-${iso(new Date())}.json`; a.click();};
 document.getElementById("impFile").onchange=e=>{const f=e.target.files[0]; if(!f) return; const r=new FileReader();
-  r.onload=()=>{try{const d=JSON.parse(r.result); if(!d.start||!Array.isArray(d.indispos)) throw 0; state=d; state.desid=state.desid||{}; load2();
-    document.getElementById("pMsg").textContent=`Données importées : ${state.indispos.length} indisponibilité(s), ${Object.keys(state.desid).length} desiderata.`}
+  r.onload=()=>{try{const d=JSON.parse(r.result); if(!d.start||!Array.isArray(d.indispos)) throw 0; state=d; load2();
+    document.getElementById("pMsg").textContent=`Données importées : ${state.indispos.length} indisponibilité(s).`}
     catch(_){document.getElementById("pMsg").textContent="Ce fichier n'est pas une sauvegarde du planning. Choisissez un fichier exporté depuis cette page."}};
   r.readAsText(f); e.target.value="";};
-document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes les indisponibilités et tous les desiderata, et remettre les paramètres par défaut ?")) return;
+document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes les indisponibilités et remettre les paramètres par défaut ?")) return;
   try{localStorage.removeItem(STORE)}catch(e){} state=null; load(); load2();};
-function load2(){state.names={...DEFAULT_NAMES,...state.names}; save(); document.getElementById("viewFrom").value=state.start; dStart=blockOf(new Date()).start; renderParams(); fillSelects(); fillDesidSelects(); renderIndispo(); renderDesid(); renderPlanning();}
+function load2(){state.names={...DEFAULT_NAMES,...state.names}; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
 
 /* ---------- Onglets ---------- */
 document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) return;
