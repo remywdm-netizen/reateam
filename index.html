@@ -278,7 +278,7 @@ const nm=j=>state.names[j]||("MAR "+j);
 /* ---------- Trame théorique ---------- */
 function baseWeek(w){ // w = 1..10
   const k=m5(w), cyc=w<=5?"A":"B", s={};
-  [k,m5(k+1)].forEach(j=>s[j]=Array(5).fill("REA"));
+  [k,m5(k+1)].forEach(j=>s[j]=Array(5).fill("REA"));  // m5(k+1) entre en réa (1re semaine), k y termine sa 2e semaine
   s[m5(k+2)]=["CONS","BLOC","ENDO","CONS","ENDO"];   // dernière semaine d'endo avant la réa
   s[m5(k+3)]=["BLOC","ENDO","CONS","CONSX","ENDO"];  // semaine du milieu
   s[m5(k+4)]=["CONS","CONS","ENDO","ENDO","ENDO"];   // sortie de réa
@@ -292,6 +292,16 @@ function cycleWeek(monday){
 }
 function indispoOn(j,dateIso){return state.indispos.find(i=>+i.who===j&&i.from<=dateIso&&dateIso<=i.to)}
 const isEndo=r=>["ENDO","CONS","CONSX","BLOC","RENFORT"].includes(r);
+
+/* ---------- 1re semaine de réa : aucune absence ---------- */
+const firstRea=monday=>m5(baseWeek(cycleWeek(monday)).k+1);
+// Lundis des 1res semaines de réa du MAR touchées par la période [a, b]
+function firstReaHits(j,a,b){
+  const hits=[];
+  for(let m=mondayOf(parse(a));iso(m)<=b;m=addDays(m,7))
+    if(j<=5&&firstRea(m)===j) for(let d=0;d<5;d++){const di=iso(addDays(m,d)); if(di>=a&&di<=b){hits.push(m);break}}
+  return hits;
+}
 
 /* ---------- Remplacement des consultations impossibles ---------- */
 const fmtDay=new Intl.DateTimeFormat("fr-FR",{weekday:"long",day:"numeric",month:"short"});
@@ -347,6 +357,8 @@ function buildWeek(monday){
       const cand=[1,2,3,4,5].filter(j=>cell[j].role==="ENDO").map(nm);
       alerts.push([rea<2?"crit":"warn",`${dl} : réa à ${rea} MAR (3 attendus).`+(cand.length?` Renfort possible depuis l'endo : ${cand.join(", ")}.`:"")]);
     }
+    const fr=m5(k+1), fi=cell[fr].ind;
+    if(fi) alerts.push(["crit",`${dl} : ${nm(fr)} est en 1re semaine de réa, aucune absence n'y est possible (${fi.motif} saisi). Déplacez cette absence.`]);
     // Consultations et blocs perdus
     for(let j=1;j<=7;j++){
       const c=cell[j];
@@ -518,6 +530,8 @@ document.getElementById("iAdd").onclick=()=>{
   let to=document.getElementById("iTo").value||from; const msg=document.getElementById("iMsg");
   if(!from){msg.textContent="Indiquez au moins la date de début.";return}
   if(to<from){msg.textContent="La date de fin précède la date de début : corrigez l'une des deux.";return}
+  const hits=firstReaHits(who,from,to);
+  if(hits.length){msg.textContent=`Impossible : ${nm(who)} est en 1re semaine de réa la semaine du ${hits.map(m=>fmtLong.format(m)).join(", du ")}. Aucune absence n'y est possible (garde et récupération comprises). Choisissez d'autres dates.`;return}
   state.indispos.push({id:Date.now().toString(36),who,from,to,motif:document.getElementById("iMotif").value,note:document.getElementById("iNote").value.trim()});
   save(); msg.textContent=`Indisponibilité ajoutée pour ${nm(who)} (${workdays(from,to)} jour(s) ouvré(s)).`;
   document.getElementById("iNote").value=""; renderIndispo(); renderPlanning();

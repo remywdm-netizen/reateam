@@ -7,6 +7,7 @@ Application web (un seul fichier `index.html`, sans serveur) pour le roulement d
 - Cycle de 10 semaines (cycles A et B).
 - Réa : 3 postes = 2 MAR du roulement + 1 MAR extérieur fixe. Endoscopie : 3 MAR du roulement.
 - Chaque MAR du roulement enchaîne 2 semaines de réa (relais d'un MAR par semaine) puis 3 semaines d'endoscopie.
+- Aucune absence (temps partiel, congé, garde, récupération…) n'est possible pendant la 1re des deux semaines de réa. La saisie est refusée, et une absence déjà enregistrée sur cette semaine déclenche une alerte critique.
 - Consultations l'après-midi : lundi ×2, mardi ×1, mercredi ×1, jeudi ×2.
 - Consultations lib (consultation du mardi et l'une des deux du jeudi) : le consultant du mardi est au bloc le lundi après-midi suivant, celui du jeudi le mardi après-midi suivant.
 - MAR : CS (100 %), RW et SG (90 %), MS et JC (80 %), Extérieur réa (fixe en réa), Extérieur renfort (ajouté automatiquement en réa ou en endoscopie quand un poste manque, la réa en priorité).
