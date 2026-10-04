@@ -128,6 +128,9 @@ table.half td[data-j]:hover{background:#f0f6f6}
 #gate .err{color:var(--crit);min-height:1.4em;margin:12px 0 0;font-size:.9rem}
 body.locked>header,body.locked>main{display:none}
 body:not(.locked)>#gate{display:none}
+.sync{position:absolute;top:52px;right:20px;font-size:.75rem;padding:2px 8px;border-radius:10px;background:#2c4a52;color:#cfe0e2}
+.sync.ok{background:#1d5b27;color:#e3f0e4}.sync.warn{background:#b25e00;color:#fff}.sync.err{background:#b3261e;color:#fff}
+@media (max-width:640px){.sync{position:static;display:inline-block;margin:0 0 8px}}
 .logout{position:absolute;top:16px;right:20px;background:transparent;border:1px solid #6d8a90;color:#cfe0e2}
 header{position:relative}
 @media print{
@@ -151,6 +154,7 @@ header{position:relative}
 </div>
 <header>
   <button class="btn small logout" id="logoutBtn">Se déconnecter</button>
+  <span class="sync" id="syncStatus" hidden></span>
   <h1>Planning MAR · Réa / Endoscopie</h1>
   <p>Cycle de 10 semaines : réa à 3 (2 MAR du roulement + 1 extérieur), endoscopie à 3, consultations intégrées. Les jours off des temps partiels se saisissent dans les indisponibilités.</p>
   <nav role="tablist">
@@ -297,6 +301,17 @@ header{position:relative}
     <div id="pRules" class="rules"></div>
   </div>
   <div class="panel">
+    <h2>Stockage en ligne</h2>
+    <p class="note" style="margin:0 0 12px">Partage des données entre tous les postes grâce à un tableur Google (indisponibilités, échanges, remplacements, trame du service, noms, date de début). Le code d'accès est vérifié par le serveur Google ; sans lui, rien ne peut être lu ni modifié. Installation : copiez le script <a href="https://github.com/remywdm-netizen/reateam/blob/main/apps-script/Code.gs" target="_blank" rel="noopener">apps-script/Code.gs</a> dans un tableur Google (instructions en tête du fichier), puis collez ici l'URL de l'application Web.</p>
+    <div class="row">
+      <label style="flex:1;min-width:260px">URL de l'application Web (…/exec)<input type="url" id="cUrl" placeholder="https://script.google.com/macros/s/…/exec"></label>
+      <button class="btn" id="cSave">Connecter</button>
+      <button class="btn ghost" id="cNow">Synchroniser maintenant</button>
+      <button class="btn danger" id="cOff">Désactiver</button>
+    </div>
+    <p class="note" id="cMsg" role="status"></p>
+  </div>
+  <div class="panel">
     <h2>Sauvegarde et partage</h2>
     <p class="note" style="margin:0 0 12px">Les données sont enregistrées dans ce navigateur. Exportez-les pour les sauvegarder ou les transmettre à un collègue.</p>
     <div class="row">
@@ -317,21 +332,24 @@ header{position:relative}
 const ACCESS_HASH="52e3a16760d84d47badeb8295d201ec6d0de52c9dc60198abc680da684eba1db";
 const ACCESS_KEY="planning-mar-acces", ACCESS_DAYS=30;
 async function sha256(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
-function unlock(){document.body.classList.remove("locked")}
-try{const a=JSON.parse(localStorage.getItem(ACCESS_KEY)); if(a&&a.h===ACCESS_HASH&&a.until>Date.now()) unlock()}catch(e){}
+let accessCode="";   // code saisi, transmis au stockage en ligne (vérifié aussi côté serveur)
+let unlocked=false; var appReady=false;
+function unlock(){document.body.classList.remove("locked"); unlocked=true; if(appReady) cloudStart()}
+try{const a=JSON.parse(localStorage.getItem(ACCESS_KEY)); if(a&&a.h===ACCESS_HASH&&a.until>Date.now()){accessCode=a.c||""; unlock()}}catch(e){}
 if(document.body.classList.contains("locked")) document.getElementById("gateCode").focus();
 document.getElementById("gateForm").onsubmit=async e=>{
   e.preventDefault(); const f=e.target, inp=document.getElementById("gateCode"), err=document.getElementById("gateErr"), bt=f.querySelector("button");
   bt.disabled=true;
   if(await sha256("planning-mar:"+inp.value.trim().toUpperCase())===ACCESS_HASH){
-    try{localStorage.setItem(ACCESS_KEY,JSON.stringify({h:ACCESS_HASH,until:Date.now()+ACCESS_DAYS*864e5}))}catch(_){}
+    accessCode=inp.value.trim().toUpperCase();
+    try{localStorage.setItem(ACCESS_KEY,JSON.stringify({h:ACCESS_HASH,c:accessCode,until:Date.now()+ACCESS_DAYS*864e5}))}catch(_){}
     inp.value=""; err.textContent=""; bt.disabled=false; unlock();
   }else{
     err.textContent="Code incorrect. Vérifiez-le et réessayez."; inp.select();
     setTimeout(()=>bt.disabled=false,1500);
   }
 };
-document.getElementById("logoutBtn").onclick=()=>{try{localStorage.removeItem(ACCESS_KEY)}catch(_){} document.body.classList.add("locked"); document.getElementById("gateCode").focus()};
+document.getElementById("logoutBtn").onclick=()=>{try{localStorage.removeItem(ACCESS_KEY)}catch(_){} accessCode=""; unlocked=false; document.body.classList.add("locked"); document.getElementById("gateCode").focus()};
 
 /* ---------- Données de base ---------- */
 const STORE="planning-mar-v2";
@@ -359,7 +377,7 @@ function load(){
   if(!state.startInit){state.start=DEFAULT_START; state.startInit=DEFAULT_START}
   state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; delete state.jcRea; state.trame=state.trame||{};
 }
-function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}}
+function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){} if(typeof cloudChanged==="function") cloudChanged()}
 const nm=j=>state.names[j]||("MAR "+j);
 
 /* ---------- Trame théorique ---------- */
@@ -1353,7 +1371,7 @@ document.getElementById("impFile").onchange=e=>{const f=e.target.files[0]; if(!f
     document.getElementById("pMsg").textContent=`Données importées : ${state.indispos.length} indisponibilité(s).`}
     catch(_){document.getElementById("pMsg").textContent="Ce fichier n'est pas une sauvegarde du planning. Choisissez un fichier exporté depuis cette page."}};
   r.readAsText(f); e.target.value="";};
-document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes les indisponibilités, tous les remplacements et tous les échanges de réa, et remettre les paramètres par défaut ?")) return;
+document.getElementById("resetBtn").onclick=()=>{ if(!confirm((cloudUrl()?"Attention : le stockage en ligne est actif, la réinitialisation sera partagée avec tous les postes.\n\n":"")+"Supprimer toutes les indisponibilités, tous les remplacements et tous les échanges de réa, et remettre les paramètres par défaut ?")) return;
   try{localStorage.removeItem(STORE)}catch(e){} state=null; load(); load2();};
 function load2(){ if(typeof fillOffSelect==="function") setTimeout(fillOffSelect);state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; delete state.jcRea; state.trame=state.trame||{}; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
 
@@ -1370,7 +1388,81 @@ document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) r
   if(sec==="planning"){planView=t==="poste"?"poste":"mar"; renderPlanning()}};
 ["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
 
-load(); renderLegend(); load2();
+/* ---------- Stockage en ligne (Google Apps Script) ---------- */
+// L'URL peut être fixée ici pour tous les postes, ou saisie dans Paramètres (prioritaire, propre à ce navigateur)
+const CLOUD_URL_DEFAULT="";
+const CLOUD_KEY="planning-mar-cloud";
+const cloud={version:0,dirty:false,applying:false,timer:null,busy:false,started:false,synced:false};
+// version connue et modification en attente, conservées au rechargement (modification faite hors ligne)
+const CLOUD_META="planning-mar-cloud-meta";
+function metaSave(){try{localStorage.setItem(CLOUD_META,JSON.stringify({v:cloud.version,d:cloud.dirty,u:cloudUrl()}))}catch(e){}}
+function metaLoad(){try{const m=JSON.parse(localStorage.getItem(CLOUD_META)); if(m&&m.u===cloudUrl()&&m.v){cloud.version=m.v; cloud.dirty=!!m.d; cloud.synced=true}}catch(e){}}
+function cloudUrl(){let u="";try{u=localStorage.getItem(CLOUD_KEY)||""}catch(e){} return u==="off"?"":u||CLOUD_URL_DEFAULT}
+function cloudStatus(txt,cls){const el=document.getElementById("syncStatus"); el.hidden=!txt; el.textContent=txt; el.className="sync"+(cls?" "+cls:""); const m=document.getElementById("cMsg"); if(m) m.textContent=txt}
+const hhmm=()=>new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+async function cloudCall(body){
+  const r=await fetch(cloudUrl(),{method:"POST",body:JSON.stringify({...body,code:accessCode})});   // text/plain : pas de pré-requête CORS
+  return r.json();
+}
+// Remplace les données locales par celles du serveur, sans renvoyer d'enregistrement
+function cloudAdopt(remote){
+  cloud.applying=true;
+  try{ try{localStorage.setItem(STORE,JSON.stringify(remote))}catch(e){} load(); if(!state.start) state=remote; load2(); }
+  finally{ cloud.applying=false; }
+}
+async function cloudPull(){
+  if(!cloudUrl()||!unlocked||cloud.busy||cloud.dirty) return;
+  if(!accessCode){cloudStatus("En ligne : reconnectez-vous (code requis)","warn");return}
+  cloud.busy=true;
+  try{
+    const res=await cloudCall({action:"load"});
+    if(!res.ok){cloudStatus(res.error==="code"?"En ligne : code refusé par le serveur":"En ligne : erreur ("+res.error+")","err");return}
+    if(!res.state){cloud.version=res.version||0; cloud.synced=true; cloud.dirty=true; cloud.busy=false; await cloudPush(); return}   // premier usage : envoi des données de ce poste
+    if(res.version!==cloud.version){cloud.version=res.version; cloudAdopt(res.state)}
+    cloud.synced=true; metaSave();
+    cloudStatus("En ligne · à jour "+hhmm(),"ok");
+  }catch(e){cloudStatus("Hors ligne : données de ce poste uniquement","warn")}
+  finally{cloud.busy=false}
+}
+async function cloudPush(){
+  if(!cloudUrl()||!unlocked) return;
+  if(!accessCode){cloudStatus("En ligne : reconnectez-vous (code requis)","warn");return}
+  if(cloud.busy){clearTimeout(cloud.timer); cloud.timer=setTimeout(cloudPush,800); return}
+  cloud.busy=true; cloudStatus("En ligne · enregistrement…","");
+  try{
+    const res=await cloudCall({action:"save",version:cloud.version,state});
+    if(res.ok){cloud.version=res.version; cloud.dirty=false; metaSave(); cloudStatus("En ligne · enregistré "+hhmm(),"ok")}
+    else if(res.error==="conflict"){
+      cloud.dirty=false; cloud.version=res.version; metaSave(); cloudAdopt(res.state);
+      cloudStatus("Modifié sur un autre poste : données rechargées. Refaites votre dernière modification si elle n'apparaît pas.","warn");
+    }else cloudStatus(res.error==="code"?"En ligne : code refusé par le serveur":"En ligne : erreur ("+res.error+")","err");
+  }catch(e){cloudStatus("Hors ligne : modification gardée sur ce poste, nouvel essai dans 30 s","warn"); clearTimeout(cloud.timer); cloud.timer=setTimeout(cloudPush,30000)}
+  finally{cloud.busy=false}
+}
+function cloudChanged(){
+  // avant la première synchronisation, les données en ligne priment : rien n'est envoyé
+  if(cloud.applying||!cloudUrl()||!unlocked||!appReady||!cloud.synced) return;
+  cloud.dirty=true; metaSave(); clearTimeout(cloud.timer); cloud.timer=setTimeout(cloudPush,800);
+}
+function cloudStart(){
+  if(!cloudUrl()){cloudStatus("");return}
+  if(!cloud.started){cloud.started=true;
+    setInterval(()=>{if(document.visibilityState==="visible") cloudPull()},60000);
+    document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible") cloudPull()});
+  }
+  cloud.dirty?cloudPush():cloudPull();   // modification en attente (faite hors ligne) : envoyée d'abord
+}
+metaLoad();
+document.getElementById("cUrl").value=cloudUrl();
+document.getElementById("cSave").onclick=()=>{
+  const u=document.getElementById("cUrl").value.trim();
+  if(!/^https:\/\/script\.google(usercontent)?\.com\/.+/.test(u)){cloudStatus("URL invalide : elle doit commencer par https://script.google.com/","err");return}
+  try{localStorage.setItem(CLOUD_KEY,u)}catch(e){} cloud.version=0; cloud.dirty=false; cloud.synced=false; metaSave(); cloudStart();
+};
+document.getElementById("cNow").onclick=()=>{cloud.dirty?cloudPush():cloudPull()};
+document.getElementById("cOff").onclick=()=>{try{localStorage.setItem(CLOUD_KEY,"off")}catch(e){} document.getElementById("cUrl").value=""; cloudStatus(""); document.getElementById("cMsg").textContent="Stockage en ligne désactivé sur ce poste : les données restent dans ce navigateur."};
+
+load(); renderLegend(); load2(); appReady=true; if(unlocked) cloudStart();
 </script>
 </body>
 </html>
