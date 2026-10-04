@@ -960,14 +960,18 @@ function trameFill(W){
   const f={}, put=(r,c,v)=>{if(v) f[r+","+c]=v};
   put(4,1,"SEMAINE n° "+isoWeek(W.monday));
   for(let d=0;d<7;d++) put(5,2+4*d,fmtDM.format(addDays(W.monday,d)));
+  put(45,18,nm(rawRows(W.monday).first));   // référent « REA 1 » : le MAR en 1re semaine de réa
   W.days.forEach((D,d)=>{
     const b=2+4*d, C=D.cell;
-    // Réanimation (journée) : MAR du roulement, extérieur réa, renfort
-    const rea=[1,2,3,4,5].filter(j=>C[j].role==="REA"||C[j].role==="REA_CONS").concat(C[6].role==="REA"?[6]:[],C[7].role==="REA_R"?[7]:[]);
-    [[10,b],[10,b+1],[11,b],[11,b+1]].forEach(([r,c],i)=>put(r,c,rea[i]&&nm(rea[i])));
-    // Endoscopies (matin)
-    const endo=[1,2,3,4,5,8].filter(j=>isEndo(C[j].role)).concat(C[7].role==="RENFORT"?[7]:[]);
-    [[17,b],[17,b+1],[18,b],[18,b+1]].forEach(([r,c],i)=>put(r,c,endo[i]&&nm(endo[i])));
+    // Réanimation et endoscopies : matin dans les colonnes M, après-midi dans les colonnes AM
+    // (un praticien présent l'après-midi y est renoté ; consultation ou bloc l'après-midi : il n'y figure pas)
+    const half=(j,h)=>C[j].role&&HALF[libRole(C[j].role,d)]?HALF[libRole(C[j].role,d)][h]:"";
+    const who=(h,roles)=>[1,2,3,4,5,8,6,7].filter(j=>roles.includes(half(j,h)));
+    [0,1].forEach(h=>{
+      const c0=b+2*h, rea=who(h,["REA","REA_R"]), endo=who(h,["ENDO","RENFORT"]);
+      [[10,c0],[10,c0+1],[11,c0],[11,c0+1]].forEach(([r,c],i)=>put(r,c,rea[i]&&nm(rea[i])));
+      [[17,c0],[17,c0+1],[18,c0],[18,c0+1]].forEach(([r,c],i)=>put(r,c,endo[i]&&nm(endo[i])));
+    });
     // Consultations d'endoscopie (après-midi) ; cases fusionnées le mardi et le mercredi
     const cons=[1,2,3,4,5,8].filter(j=>["CONS","CONSX","REA_CONS"].includes(C[j].role)).map(nm);
     if(TRAME.merges.some(m=>m[0]===26&&m[1]===b+2&&m[3]===b+3)) put(26,b+2,cons.join("/"));
