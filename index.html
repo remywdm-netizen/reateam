@@ -109,6 +109,15 @@ table.half td[data-j]:hover{background:#f0f6f6}
 .cons-day .n,#coOut .n{display:inline-block;border-radius:5px;padding:2px 7px;margin:2px 4px 2px 0;font-size:.85rem}
 .cons-day small{color:var(--muted);margin-right:8px}
 .cons-day tr.wk td{border-top:2px solid var(--line)}
+.trame{border-collapse:collapse;table-layout:fixed;font-size:.72rem;min-width:1150px;background:#fff}
+.trame td{border:1px solid #9aa;padding:1px 2px;height:19px;text-align:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.trame td.lbl{font-weight:700;text-align:left}
+.trame td[contenteditable]{cursor:text}
+.trame td[contenteditable]:focus{outline:2px solid #f2b705;white-space:normal}
+.trame td.pre{color:#0b3c8c;font-weight:700}
+.trame td.edit{font-style:italic;color:#7a2a22}
+.trame-wk{margin-bottom:22px}
+.trame-wk h3{margin:0 0 6px}
 .note{font-size:.85rem;color:var(--muted);margin:8px 0 0}
 #gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
 #gate form{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:28px 24px;width:100%;max-width:360px;text-align:center}
@@ -124,6 +133,7 @@ header{position:relative}
 @media print{
   #gate,.logout{display:none!important}
   header nav,.toolbar,#tab-indispo,#tab-params{display:none!important}
+  #tab-trame>.note{display:none} .trame-wk{break-after:page} .trame{min-width:0;width:100%}
   body{background:#fff} .week{break-inside:avoid;border-color:#999}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -148,6 +158,7 @@ header{position:relative}
     <button role="tab" data-tab="poste" aria-selected="false">Planning par poste</button>
     <button role="tab" data-tab="prat" aria-selected="false">Par praticien</button>
     <button role="tab" data-tab="cons" aria-selected="false">Consultations</button>
+    <button role="tab" data-tab="trame" aria-selected="false">Trame service</button>
     <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
     <button role="tab" data-tab="params" aria-selected="false">Paramètres</button>
   </nav>
@@ -201,6 +212,21 @@ header{position:relative}
     <button class="btn ghost" id="coPrint" style="margin-top:18px">Imprimer</button>
   </div>
   <div id="coOut"></div>
+</section>
+
+<!-- TRAME DU SERVICE (planning d'anesthésie pré-rempli) -->
+<section id="tab-trame" hidden>
+  <div class="toolbar">
+    <label>À partir de la semaine du<input type="date" id="trFrom"></label>
+    <label>Nombre de semaines
+      <select id="trWeeks"><option>1</option><option>2</option><option selected>4</option><option>8</option><option>13</option></select>
+    </label>
+    <button class="btn" id="trXlsx" style="margin-top:18px">Exporter en Excel</button>
+    <button class="btn ghost" id="trPrint" style="margin-top:18px">Imprimer</button>
+  </div>
+  <p class="note" style="margin:-6px 0 12px">Planning de la semaine du service, sur le modèle de la trame : réanimation, endoscopies, consultations d'endoscopie, absents et infos sont pré-remplis depuis le planning des MAR. Les autres cases se complètent directement (cliquez dans une case) ; vos saisies sont conservées et reprises dans l'export Excel. Une case pré-remplie modifiée apparaît en italique.</p>
+  <p class="note" id="trMsg" role="status" style="color:var(--accent);font-weight:700"></p>
+  <div id="trOut"></div>
 </section>
 
 <!-- INDISPONIBILITÉS -->
@@ -331,7 +357,7 @@ function load(){
   if(!state||!state.start){state={start:DEFAULT_START,names:{...DEFAULT_NAMES},indispos:[]}}
   // Mise en place du planning au 4 janvier 2027 : appliquée une fois aux navigateurs qui avaient une autre date
   if(!state.startInit){state.start=DEFAULT_START; state.startInit=DEFAULT_START}
-  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; delete state.jcRea;
+  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; delete state.jcRea; state.trame=state.trame||{};
 }
 function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){}}
 const nm=j=>state.names[j]||("MAR "+j);
@@ -817,6 +843,7 @@ function renderPlanning(){
   document.getElementById("weeks").innerHTML=html||`<p class="empty">Aucune alerte sur la période affichée.</p>`;
   if(!document.getElementById("tab-prat").hidden) renderPrat();
   if(!document.getElementById("tab-cons").hidden) renderCons();
+  if(!document.getElementById("tab-trame").hidden) renderTrame();
   document.getElementById("summary").innerHTML=nAl?`${nAl} alerte${nAl>1?"s":""}, dont <strong>${nCrit} critique${nCrit>1?"s":""}</strong>`:"Aucune alerte sur la période";
 }
 
@@ -903,6 +930,121 @@ function renderCons(){
 }
 ["coFrom","coWeeks"].forEach(id=>document.getElementById(id).onchange=renderCons);
 document.getElementById("coPrint").onclick=()=>window.print();
+
+/* ---------- Trame du service ---------- */
+// Mise en page de la trame (feuille « 44 » du planning du service, sans les noms) : libellés, couleurs, fusions, largeurs
+const TRAME={"cells":{"1,1":{"v":"PLANNING SEMAINE DU SERVICE D'ANESTHESIE","b":1},"2,1":{"b":1},"2,2":{"b":1},"2,3":{"b":1},"2,4":{"b":1},"2,5":{"b":1},"2,6":{"b":1},"2,7":{"b":1},"2,8":{"b":1},"2,9":{"b":1},"2,10":{"b":1},"2,11":{"b":1},"2,12":{"b":1},"2,13":{"b":1},"2,14":{"b":1},"2,15":{"b":1},"2,16":{"b":1},"2,17":{"b":1},"2,18":{"b":1},"2,19":{"b":1},"2,20":{"b":1},"2,21":{"b":1},"2,22":{"b":1},"2,23":{"b":1},"2,24":{"b":1},"2,25":{"b":1},"2,26":{"b":1},"2,27":{"b":1},"2,28":{"b":1},"2,29":{"b":1},"3,1":{"b":1},"3,2":{"b":1},"3,3":{"b":1},"3,4":{"b":1},"3,5":{"b":1},"3,6":{"b":1},"3,7":{"b":1},"3,8":{"b":1},"3,9":{"b":1},"3,10":{"b":1},"3,11":{"b":1},"3,12":{"b":1},"3,13":{"b":1},"3,14":{"b":1},"3,15":{"b":1},"3,16":{"b":1},"3,17":{"b":1},"3,18":{"b":1},"3,19":{"b":1},"3,20":{"b":1},"3,21":{"b":1},"3,22":{"b":1},"3,23":{"b":1},"3,24":{"b":1},"3,25":{"b":1},"3,26":{"b":1},"3,27":{"b":1},"3,28":{"b":1},"3,29":{"b":1},"4,1":{"v":"SEMAINE n°","b":1},"4,2":{"v":"LUNDI","bg":"D9D9D9","b":1},"4,6":{"v":"MARDI","bg":"D9D9D9","b":1},"4,10":{"v":"MERCREDI","bg":"D9D9D9","b":1},"4,14":{"v":"JEUDI","bg":"D9D9D9","b":1},"4,18":{"v":"VENDREDI","bg":"D9D9D9","b":1},"4,22":{"v":"SAMEDI","bg":"D9D9D9","b":1},"4,26":{"v":"DIMANCHE","bg":"D9D9D9","b":1},"6,1":{"b":1},"6,2":{"v":"M","b":1},"6,4":{"v":"AM","b":1},"6,6":{"v":"M","b":1},"6,8":{"v":"AM","b":1},"6,10":{"v":"M","b":1},"6,12":{"v":"AM","b":1},"6,14":{"v":"M","b":1},"6,16":{"v":"AM","b":1},"6,18":{"v":"M","b":1},"6,20":{"v":"AM","b":1},"6,22":{"v":"GARDE réa","b":1},"6,24":{"v":"GARDE anesth","b":1},"6,26":{"v":"GARDE réa","b":1},"6,28":{"v":"GARDE anesth","b":1},"7,1":{"v":"ANESTHESISTES AUX BLOCS","bg":"D9D9D9","b":1},"7,22":{"b":1},"7,24":{"b":1},"7,26":{"b":1},"7,28":{"b":1},"8,1":{"v":"VISCERAL","bg":"FFE699","b":1},"8,2":{"bg":"FFE699","b":1},"8,3":{"bg":"FFE699","b":1},"8,4":{"bg":"FFE699","b":1},"8,5":{"bg":"FFE699","b":1},"8,6":{"bg":"FFE699","b":1},"8,7":{"bg":"FFE699","b":1},"8,8":{"bg":"FFE699","b":1},"8,9":{"bg":"FFE699","b":1},"8,10":{"bg":"FFE699","b":1},"8,11":{"bg":"FFE699","b":1},"8,12":{"bg":"FFE699","b":1},"8,13":{"bg":"FFE699","b":1},"8,14":{"bg":"FFE699","b":1},"8,15":{"bg":"FFE699","b":1},"8,16":{"bg":"FFE699","b":1},"8,17":{"bg":"FFE699","b":1},"8,18":{"bg":"FFE699","b":1},"8,19":{"bg":"FFE699","b":1},"8,20":{"bg":"FFE699","b":1},"8,21":{"bg":"FFE699","b":1},"8,22":{"v":"ANESTHESISTES ET N° DE POSTES","b":1},"9,2":{"bg":"FFE699","b":1},"9,3":{"bg":"FFE699","b":1},"9,4":{"bg":"FFE699","b":1},"9,5":{"bg":"FFE699","b":1},"9,6":{"bg":"FFE699","b":1},"9,7":{"bg":"FFE699","b":1},"9,8":{"bg":"FFE699","b":1},"9,9":{"bg":"FFE699","b":1},"9,10":{"bg":"FFE699","b":1},"9,11":{"bg":"FFE699","b":1},"9,12":{"bg":"FFE699","b":1},"9,13":{"bg":"FFE699","b":1},"9,14":{"bg":"FFE699","b":1},"9,15":{"bg":"FFE699","b":1},"9,16":{"bg":"FFE699","b":1},"9,17":{"bg":"FFE699","b":1},"9,18":{"bg":"FFE699","b":1},"9,19":{"bg":"FFE699","b":1},"9,20":{"bg":"FFE699","b":1},"9,21":{"bg":"FFE699","b":1},"10,1":{"v":"REANIMATION","bg":"9DC3E6","b":1},"10,2":{"bg":"9DC3E6","b":1},"10,3":{"bg":"9DC3E6","b":1},"10,4":{"bg":"9DC3E6","b":1},"10,5":{"bg":"9DC3E6","b":1},"10,6":{"bg":"9DC3E6","b":1},"10,7":{"bg":"9DC3E6","b":1},"10,8":{"bg":"9DC3E6","b":1},"10,9":{"bg":"9DC3E6","b":1},"10,10":{"bg":"9DC3E6","b":1},"10,11":{"bg":"9DC3E6","b":1},"10,12":{"bg":"9DC3E6","b":1},"10,13":{"bg":"9DC3E6","b":1},"10,14":{"bg":"9DC3E6","b":1},"10,15":{"bg":"9DC3E6","b":1},"10,16":{"bg":"9DC3E6","b":1},"10,17":{"bg":"9DC3E6","b":1},"10,18":{"bg":"9DC3E6","b":1},"10,19":{"bg":"9DC3E6","b":1},"10,20":{"bg":"9DC3E6","b":1},"10,21":{"bg":"9DC3E6","b":1},"10,22":{"b":1},"10,26":{"b":1},"10,27":{"b":1},"11,2":{"bg":"9DC3E6","b":1},"11,3":{"bg":"9DC3E6","b":1},"11,4":{"bg":"9DC3E6","b":1},"11,5":{"bg":"9DC3E6","b":1},"11,6":{"bg":"9DC3E6","b":1},"11,7":{"bg":"9DC3E6","b":1},"11,8":{"bg":"9DC3E6","b":1},"11,9":{"bg":"9DC3E6","b":1},"11,10":{"bg":"9DC3E6","b":1},"11,11":{"bg":"9DC3E6","b":1},"11,12":{"bg":"9DC3E6","b":1},"11,13":{"bg":"9DC3E6","b":1},"11,14":{"bg":"9DC3E6","b":1},"11,15":{"bg":"9DC3E6","b":1},"11,16":{"bg":"9DC3E6","b":1},"11,17":{"bg":"9DC3E6","b":1},"11,18":{"bg":"9DC3E6","b":1},"11,19":{"bg":"9DC3E6","b":1},"11,20":{"bg":"9DC3E6","b":1},"11,21":{"bg":"9DC3E6","b":1},"11,22":{"b":1},"11,26":{"b":1},"11,27":{"b":1},"12,1":{"v":"ORTHO","bg":"F3AA7D","b":1},"12,2":{"bg":"F4B183","b":1},"12,3":{"bg":"F4B183","b":1},"12,4":{"bg":"F4B183","b":1},"12,5":{"bg":"F4B183","b":1},"12,6":{"bg":"F4B183","b":1},"12,7":{"bg":"F4B183","b":1},"12,8":{"bg":"F4B183","b":1},"12,9":{"bg":"F4B183","b":1},"12,10":{"bg":"F4B183","b":1},"12,11":{"bg":"F4B183","b":1},"12,12":{"bg":"F4B183","b":1},"12,13":{"bg":"F4B183","b":1},"12,14":{"bg":"F4B183","b":1},"12,15":{"bg":"F4B183","b":1},"12,16":{"bg":"F4B183","b":1},"12,17":{"bg":"F4B183","b":1},"12,18":{"bg":"F4B183","b":1},"12,19":{"bg":"F4B183","b":1},"12,20":{"bg":"F4B183","b":1},"12,21":{"bg":"F4B183","b":1},"12,22":{"b":1},"12,26":{"b":1},"12,27":{"b":1},"13,2":{"bg":"F4B183","b":1},"13,3":{"bg":"F4B183","b":1},"13,4":{"bg":"F4B183","b":1},"13,5":{"bg":"F4B183","b":1},"13,6":{"bg":"F4B183","b":1},"13,7":{"bg":"F4B183","b":1},"13,8":{"bg":"F4B183","b":1},"13,9":{"bg":"F4B183","b":1},"13,10":{"bg":"F4B183","b":1},"13,11":{"bg":"F4B183","b":1},"13,12":{"bg":"F4B183","b":1},"13,13":{"bg":"F4B183","b":1},"13,14":{"bg":"F4B183","b":1},"13,15":{"bg":"F4B183","b":1},"13,16":{"bg":"F4B183","b":1},"13,17":{"bg":"F4B183","b":1},"13,18":{"bg":"F4B183","b":1},"13,19":{"bg":"F4B183","b":1},"13,20":{"bg":"F4B183","b":1},"13,21":{"bg":"F4B183","b":1},"13,22":{"b":1},"13,26":{"b":1},"13,27":{"b":1},"14,1":{"v":"DVI","bg":"F3AA7D","b":1},"14,2":{"bg":"F4B183","b":1},"14,3":{"bg":"F4B183","b":1},"14,4":{"bg":"F4B183","b":1},"14,5":{"bg":"F4B183","b":1},"14,6":{"bg":"F4B183","b":1},"14,8":{"bg":"F4B183","b":1},"14,9":{"bg":"F4B183","b":1},"14,10":{"bg":"F4B183","b":1},"14,11":{"bg":"F4B183","b":1},"14,12":{"bg":"F4B183","b":1},"14,13":{"bg":"F4B183","b":1},"14,14":{"bg":"F4B183","b":1},"14,15":{"bg":"F4B183","b":1},"14,16":{"bg":"F4B183","b":1},"14,17":{"bg":"F4B183","b":1},"14,18":{"bg":"F4B183","b":1},"14,19":{"bg":"F4B183","b":1},"14,20":{"bg":"F4B183","b":1},"14,21":{"bg":"F4B183","b":1},"14,22":{"b":1},"14,26":{"b":1},"14,27":{"b":1},"15,1":{"v":"ORL  OPHTALMO","bg":"FFFFC9","b":1},"15,2":{"bg":"FFF2CC","b":1},"15,3":{"bg":"FFF2CC","b":1},"15,4":{"bg":"FFF2CC","b":1},"15,5":{"bg":"FFF2CC","b":1},"15,6":{"bg":"FFF2CC","b":1},"15,7":{"bg":"FFF2CC","b":1},"15,8":{"bg":"FFF2CC","b":1},"15,9":{"bg":"FFF2CC","b":1},"15,10":{"bg":"FFF2CC","b":1},"15,11":{"bg":"FFF2CC","b":1},"15,12":{"bg":"FFF2CC","b":1},"15,13":{"bg":"FFF2CC","b":1},"15,14":{"bg":"FFF2CC","b":1},"15,15":{"bg":"FFF2CC","b":1},"15,16":{"bg":"FFF2CC","b":1},"15,17":{"bg":"FFF2CC","b":1},"15,18":{"bg":"FFF2CC","b":1},"15,19":{"bg":"FFF2CC","b":1},"15,20":{"bg":"FFF2CC","b":1},"15,21":{"bg":"FFF2CC","b":1},"15,22":{"b":1},"15,26":{"b":1},"15,27":{"b":1},"16,2":{"bg":"FFF2CC","b":1},"16,3":{"bg":"FFF2CC","b":1},"16,4":{"bg":"FFF2CC","b":1},"16,5":{"bg":"FFF2CC","b":1},"16,6":{"bg":"FFF2CC","b":1},"16,7":{"bg":"FFF2CC","b":1},"16,8":{"bg":"FFF2CC","b":1},"16,9":{"bg":"FFF2CC","b":1},"16,10":{"bg":"FFF2CC","b":1},"16,11":{"bg":"FFF2CC","b":1},"16,12":{"bg":"FFF2CC","b":1},"16,13":{"bg":"FFF2CC","b":1},"16,14":{"bg":"FFF2CC","b":1},"16,15":{"bg":"FFF2CC","b":1},"16,16":{"bg":"FFF2CC","b":1},"16,17":{"bg":"FFF2CC","b":1},"16,18":{"bg":"FFF2CC","b":1},"16,19":{"bg":"FFF2CC","b":1},"16,20":{"bg":"FFF2CC","b":1},"16,21":{"bg":"FFF2CC","b":1},"16,22":{"b":1},"16,26":{"b":1},"16,27":{"b":1},"17,1":{"v":"ENDOSCOPIES","bg":"C5E0B4","b":1},"17,2":{"bg":"C5E0B4","b":1},"17,3":{"bg":"C5E0B4","b":1},"17,4":{"bg":"C5E0B4","b":1},"17,5":{"bg":"C5E0B4","b":1},"17,6":{"bg":"C5E0B4","b":1},"17,7":{"bg":"C5E0B4","b":1},"17,8":{"bg":"C5E0B4","b":1},"17,9":{"bg":"C5E0B4","b":1},"17,10":{"bg":"C5E0B4","b":1},"17,11":{"bg":"C5E0B4","b":1},"17,12":{"bg":"C5E0B4","b":1},"17,13":{"bg":"C5E0B4","b":1},"17,14":{"bg":"C5E0B4","b":1},"17,15":{"bg":"C5E0B4","b":1},"17,16":{"bg":"C5E0B4","b":1},"17,17":{"bg":"C5E0B4","b":1},"17,18":{"bg":"C5E0B4","b":1},"17,19":{"bg":"C5E0B4","b":1},"17,20":{"bg":"C5E0B4","b":1},"17,21":{"bg":"C5E0B4","b":1},"17,22":{"b":1},"17,26":{"b":1},"17,27":{"b":1},"18,2":{"bg":"C5E0B4","b":1},"18,3":{"bg":"C5E0B4","b":1},"18,4":{"bg":"C5E0B4","b":1},"18,5":{"bg":"C5E0B4","b":1},"18,6":{"bg":"C5E0B4","b":1},"18,7":{"bg":"C5E0B4","b":1},"18,8":{"bg":"C5E0B4","b":1},"18,9":{"bg":"C5E0B4","b":1},"18,10":{"bg":"C5E0B4","b":1},"18,11":{"bg":"C5E0B4","b":1},"18,12":{"bg":"C5E0B4","b":1},"18,13":{"bg":"C5E0B4","b":1},"18,14":{"bg":"C5E0B4","b":1},"18,15":{"bg":"C5E0B4","b":1},"18,16":{"bg":"C5E0B4","b":1},"18,17":{"bg":"C5E0B4","b":1},"18,18":{"bg":"C5E0B4","b":1},"18,19":{"bg":"C5E0B4","b":1},"18,20":{"bg":"C5E0B4","b":1},"18,21":{"bg":"C5E0B4","b":1},"18,22":{"b":1},"18,26":{"b":1},"18,27":{"b":1},"19,1":{"v":"CARDIO/RADIO INTER","bg":"F2F2F2","b":1},"19,2":{"bg":"E7E6E6","b":1},"19,3":{"bg":"E7E6E6","b":1},"19,4":{"bg":"E7E6E6","b":1},"19,5":{"bg":"E7E6E6","b":1},"19,6":{"bg":"E7E6E6","b":1},"19,7":{"bg":"E7E6E6","b":1},"19,8":{"bg":"E7E6E6","b":1},"19,9":{"bg":"E7E6E6","b":1},"19,10":{"bg":"E7E6E6","b":1},"19,11":{"bg":"E7E6E6","b":1},"19,12":{"bg":"E7E6E6","b":1},"19,13":{"bg":"E7E6E6","b":1},"19,14":{"bg":"E7E6E6","b":1},"19,15":{"bg":"E7E6E6","b":1},"19,16":{"bg":"E7E6E6","b":1},"19,17":{"bg":"E7E6E6","b":1},"19,18":{"bg":"E7E6E6","b":1},"19,19":{"bg":"E7E6E6","b":1},"19,20":{"bg":"E7E6E6","b":1},"19,21":{"bg":"E7E6E6","b":1},"19,22":{"b":1},"19,26":{"b":1},"19,27":{"b":1},"20,2":{"bg":"E7E6E6","b":1},"20,3":{"bg":"E7E6E6","b":1},"20,4":{"bg":"E7E6E6","b":1},"20,5":{"bg":"E7E6E6","b":1},"20,6":{"bg":"E7E6E6","b":1},"20,7":{"bg":"E7E6E6","b":1},"20,8":{"bg":"E7E6E6","b":1},"20,9":{"bg":"E7E6E6","b":1},"20,10":{"bg":"E0E0E0","b":1},"20,11":{"bg":"E7E6E6","b":1},"20,12":{"bg":"E7E6E6","b":1},"20,13":{"bg":"E7E6E6","b":1},"20,14":{"bg":"E7E6E6","b":1},"20,15":{"bg":"E7E6E6","b":1},"20,16":{"bg":"E7E6E6","b":1},"20,17":{"bg":"E7E6E6","b":1},"20,18":{"bg":"E7E6E6","b":1},"20,19":{"bg":"E7E6E6","b":1},"20,20":{"bg":"E7E6E6","b":1},"20,21":{"bg":"E7E6E6","b":1},"20,22":{"b":1},"20,26":{"b":1},"20,27":{"b":1},"21,1":{"v":"MATERNITE","bg":"FFA7A9","b":1},"21,2":{"bg":"FFA7A9","b":1},"21,3":{"bg":"FFA7A9","b":1},"21,4":{"bg":"FFA7A9","b":1},"21,5":{"bg":"FFA7A9","b":1},"21,6":{"bg":"FFA7A9","b":1},"21,7":{"bg":"FFA7A9","b":1},"21,8":{"bg":"FFA7A9","b":1},"21,9":{"bg":"FFA7A9","b":1},"21,10":{"bg":"FFA7A9","b":1},"21,11":{"bg":"FFA7A9","b":1},"21,12":{"bg":"FFA7A9","b":1},"21,13":{"bg":"FFA7A9","b":1},"21,14":{"bg":"FFA7A9","b":1},"21,15":{"bg":"FFA7A9","b":1},"21,16":{"bg":"FFA7A9","b":1},"21,17":{"bg":"FFA7A9","b":1},"21,18":{"bg":"FFA7A9","b":1},"21,19":{"bg":"FFA7A9","b":1},"21,20":{"bg":"FFA7A9","b":1},"21,21":{"bg":"FFA7A9","b":1},"21,22":{"b":1},"21,26":{"b":1},"21,27":{"b":1},"22,2":{"bg":"FFA7A9","b":1},"22,3":{"bg":"FFA7A9","b":1},"22,4":{"bg":"FFA7A9","b":1},"22,5":{"bg":"FFA7A9","b":1},"22,6":{"bg":"FFA7A9","b":1},"22,7":{"bg":"FFA7A9","b":1},"22,8":{"bg":"FFA7A9","b":1},"22,9":{"bg":"FFA7A9","b":1},"22,10":{"bg":"FFA7A9","b":1},"22,11":{"bg":"FFA7A9","b":1},"22,12":{"bg":"FFA7A9","b":1},"22,13":{"bg":"FFA7A9","b":1},"22,14":{"bg":"FFA7A9","b":1},"22,15":{"bg":"FFA7A9","b":1},"22,16":{"bg":"FFA7A9","b":1},"22,17":{"bg":"FFA7A9","b":1},"22,18":{"bg":"FFA7A9","b":1},"22,19":{"bg":"FFA7A9","b":1},"22,20":{"bg":"FFA7A9","b":1},"22,21":{"bg":"FFA7A9","b":1},"22,22":{"b":1},"22,26":{"b":1},"22,27":{"b":1},"23,1":{"v":"PEDIATRIE","bg":"92D050","b":1},"23,2":{"bg":"92D050","b":1},"23,3":{"bg":"92D050","b":1},"23,4":{"bg":"92D050","b":1},"23,5":{"bg":"92D050","b":1},"23,6":{"bg":"92D050","b":1},"23,7":{"bg":"92D050","b":1},"23,8":{"bg":"92D050","b":1},"23,9":{"bg":"92D050","b":1},"23,10":{"bg":"92D050","b":1},"23,11":{"bg":"92D050","b":1},"23,12":{"bg":"92D050","b":1},"23,13":{"bg":"92D050","b":1},"23,14":{"bg":"92D050","b":1},"23,15":{"bg":"92D050","b":1},"23,16":{"bg":"92D050","b":1},"23,17":{"bg":"92D050","b":1},"23,18":{"bg":"92D050","b":1},"23,19":{"bg":"92D050","b":1},"23,20":{"bg":"92D050","b":1},"23,21":{"bg":"92D050","b":1},"23,22":{"b":1},"23,26":{"b":1},"23,27":{"b":1},"24,1":{"v":"CONSULTATIONS D'ANESTHESIE","bg":"D9D9D9","b":1},"24,22":{"b":1},"24,26":{"b":1},"24,27":{"b":1},"25,1":{"v":"VISC. / URO.","b":1},"25,2":{"b":1},"25,3":{"b":1},"25,4":{"bg":"FFE699","b":1},"25,5":{"bg":"FFE699","b":1},"25,6":{"b":1},"25,7":{"b":1},"25,8":{"bg":"FFE699","b":1},"25,10":{"b":1},"25,11":{"b":1},"25,12":{"bg":"FFE699","b":1},"25,14":{"b":1},"25,15":{"b":1},"25,16":{"bg":"FFE699","b":1},"25,18":{"b":1},"25,19":{"b":1},"25,20":{"b":1},"25,21":{"b":1},"25,22":{"b":1},"25,26":{"b":1},"25,27":{"b":1},"26,1":{"v":"ENDOSCOPIES","b":1},"26,2":{"b":1},"26,3":{"b":1},"26,4":{"bg":"92D050","b":1},"26,5":{"bg":"92D050","b":1},"26,6":{"b":1},"26,7":{"b":1},"26,8":{"bg":"92D050","b":1},"26,10":{"b":1},"26,11":{"b":1},"26,12":{"bg":"92D050","b":1},"26,14":{"b":1},"26,15":{"b":1},"26,16":{"bg":"92D050","b":1},"26,17":{"bg":"92D050","b":1},"26,18":{"b":1},"26,19":{"b":1},"26,20":{"b":1},"26,21":{"b":1},"26,22":{"b":1},"26,26":{"b":1},"26,27":{"b":1},"27,1":{"v":"ORTHO.","b":1},"27,2":{"b":1},"27,3":{"b":1},"27,4":{"b":1},"27,5":{"b":1},"27,6":{"b":1},"27,7":{"b":1},"27,8":{"bg":"F3AA7D","b":1},"27,10":{"b":1},"27,11":{"b":1},"27,12":{"bg":"F3AA7D","b":1},"27,14":{"b":1},"27,15":{"b":1},"27,16":{"b":1},"27,17":{"b":1},"27,18":{"bg":"F3AA7D","b":1},"27,20":{"b":1},"27,21":{"b":1},"27,22":{"b":1},"27,26":{"b":1},"27,27":{"b":1},"28,1":{"v":"ORL / OPHTALMO.","b":1},"28,2":{"b":1},"28,3":{"b":1},"28,4":{"b":1},"28,5":{"b":1},"28,6":{"bg":"FFF2CC","b":1},"28,8":{"b":1},"28,9":{"b":1},"28,10":{"bg":"FFF2CC","b":1},"28,12":{"b":1},"28,13":{"b":1},"28,14":{"bg":"FFF2CC","b":1},"28,16":{"b":1},"28,17":{"b":1},"28,18":{"bg":"FFF2CC","b":1},"28,20":{"b":1},"28,21":{"b":1},"28,22":{"b":1},"28,26":{"b":1},"28,27":{"b":1},"29,1":{"v":"POLY/INTER","b":1},"29,2":{"b":1},"29,3":{"b":1},"29,4":{"b":1},"29,5":{"b":1},"29,6":{"b":1},"29,7":{"b":1},"29,8":{"b":1},"29,9":{"b":1},"29,10":{"b":1},"29,11":{"b":1},"29,12":{"bg":"D9D9D9","b":1},"29,14":{"bg":"BDD7EE","b":1},"29,16":{"bg":"DBDBDB","b":1},"29,18":{"b":1},"29,19":{"b":1},"29,20":{"b":1},"29,21":{"b":1},"29,22":{"b":1},"29,26":{"b":1},"29,27":{"b":1},"30,1":{"v":"MATERNITE","b":1},"30,2":{"b":1},"30,3":{"b":1},"30,4":{"b":1},"30,5":{"b":1},"30,6":{"bg":"FFA7A9","b":1},"30,8":{"b":1},"30,9":{"b":1},"30,10":{"b":1},"30,11":{"b":1},"30,12":{"b":1},"30,13":{"b":1},"30,14":{"bg":"FFA7A9","b":1},"30,16":{"b":1},"30,17":{"b":1},"30,18":{"b":1},"30,19":{"b":1},"30,20":{"b":1},"30,21":{"b":1},"30,22":{"b":1},"30,26":{"b":1},"30,27":{"b":1},"31,1":{"v":"PEDIATRIE","b":1},"31,2":{"b":1},"31,3":{"b":1},"31,4":{"b":1},"31,5":{"b":1},"31,6":{"b":1},"31,7":{"b":1},"31,8":{"b":1},"31,9":{"b":1},"31,10":{"bg":"92D050","b":1},"31,12":{"b":1},"31,13":{"b":1},"31,14":{"b":1},"31,15":{"b":1},"31,16":{"b":1},"31,17":{"b":1},"31,18":{"b":1},"31,19":{"b":1},"31,20":{"b":1},"31,21":{"b":1},"31,22":{"b":1},"31,26":{"b":1},"31,27":{"b":1},"32,1":{"v":"ABSENTS","b":1},"32,2":{"b":1},"32,3":{"b":1},"32,4":{"b":1},"32,5":{"b":1},"32,6":{"b":1},"32,7":{"b":1},"32,8":{"b":1},"32,9":{"b":1},"32,10":{"b":1},"32,11":{"b":1},"32,12":{"b":1},"32,13":{"b":1},"32,14":{"b":1},"32,15":{"b":1},"32,16":{"b":1},"32,17":{"b":1},"32,18":{"b":1},"32,19":{"b":1},"32,20":{"b":1},"32,21":{"b":1},"32,22":{"b":1},"32,26":{"b":1},"32,27":{"b":1},"33,2":{"b":1},"33,3":{"b":1},"33,4":{"b":1},"33,5":{"b":1},"33,6":{"b":1},"33,7":{"b":1},"33,8":{"b":1},"33,9":{"b":1},"33,10":{"b":1},"33,11":{"b":1},"33,12":{"b":1},"33,13":{"b":1},"33,14":{"b":1},"33,15":{"b":1},"33,16":{"b":1},"33,17":{"b":1},"33,18":{"b":1},"33,19":{"b":1},"33,20":{"b":1},"33,21":{"b":1},"33,22":{"v":"GARDE REA","b":1},"33,26":{"b":1},"34,2":{"b":1},"34,3":{"b":1},"34,4":{"b":1},"34,5":{"b":1},"34,6":{"b":1},"34,7":{"b":1},"34,8":{"b":1},"34,9":{"b":1},"34,10":{"b":1},"34,11":{"b":1},"34,12":{"b":1},"34,13":{"b":1},"34,14":{"b":1},"34,15":{"b":1},"34,16":{"b":1},"34,17":{"b":1},"34,18":{"b":1},"34,19":{"b":1},"34,20":{"b":1},"34,21":{"b":1},"34,22":{"v":"GARDE BLOC/MATER","b":1},"34,26":{"b":1},"35,1":{"v":"GARDE REA","bg":"DBDBDB","b":1},"35,2":{"bg":"DBDBDB","b":1},"35,6":{"bg":"D9D9D9","b":1},"35,10":{"bg":"D9D9D9","b":1},"35,14":{"bg":"D9D9D9","b":1},"35,18":{"bg":"D9D9D9","b":1},"35,22":{"v":"SECRETARIAT TAMARIS","b":1},"35,26":{"b":1},"36,1":{"v":"GARDE ANESTH","bg":"DBDBDB","b":1},"36,2":{"bg":"DBDBDB","b":1},"36,6":{"bg":"D9D9D9","b":1},"36,10":{"bg":"D9D9D9","b":1},"36,14":{"bg":"D9D9D9","b":1},"36,18":{"bg":"D9D9D9","b":1},"36,22":{"v":"SECRETARIAT REA","b":1},"36,26":{"b":1},"37,1":{"v":"8h-18h","bg":"DBDBDB","b":1},"37,2":{"bg":"DBDBDB","b":1},"37,6":{"bg":"D9D9D9","b":1},"37,10":{"bg":"D9D9D9","b":1},"37,14":{"bg":"D9D9D9","b":1},"37,18":{"bg":"D9D9D9","b":1},"38,1":{"v":"SORTIE GARDE REA","bg":"FBE5D6","b":1},"38,2":{"bg":"FBE5D6","b":1},"38,6":{"bg":"FBE5D6","b":1},"38,10":{"bg":"FBE5D6","b":1},"38,14":{"bg":"FBE5D6","b":1},"38,18":{"bg":"FBE5D6","b":1},"39,1":{"v":"SORTIE GARDE ANESTH","bg":"FBE5D6","b":1},"39,2":{"bg":"FBE5D6","b":1},"39,6":{"bg":"FBE5D6","b":1},"39,10":{"bg":"FBE5D6","b":1},"39,14":{"bg":"FBE5D6","b":1},"39,18":{"bg":"FBE5D6","b":1},"40,1":{"v":"infos","b":1},"40,2":{"bg":"FFD966","b":1},"40,6":{"b":1},"40,10":{"b":1},"40,14":{"b":1},"40,18":{"b":1},"41,2":{"bg":"FFA7A9","b":1},"41,6":{"b":1},"41,10":{"b":1},"41,14":{"b":1},"41,18":{"b":1},"42,1":{"v":"ANESTHESISTES REFERENTS","bg":"D0CECE","b":1},"43,1":{"v":"VISCERAL/URO :","bg":"D0CECE","b":1},"43,2":{"b":1},"43,6":{"bg":"D0CECE","b":1,"v":"ORL/OPHT :"},"43,10":{"b":1},"43,14":{"bg":"D0CECE","b":1,"v":"RADIO-INTER:"},"43,18":{"b":1},"44,1":{"v":"ORTHO :","bg":"D0CECE","b":1},"44,2":{"b":1},"44,6":{"bg":"D0CECE","b":1,"v":"ENDO :"},"44,10":{"b":1},"44,14":{"bg":"D0CECE","b":1,"v":"MATERNITE :"},"44,18":{"b":1},"45,1":{"v":"ORL / OPHTALMO.","bg":"D0CECE","b":1},"45,2":{"b":1},"45,6":{"bg":"D0CECE","b":1,"v":"CARDIO-INTER:"},"45,10":{"b":1},"45,14":{"bg":"D0CECE","b":1,"v":"REANIMATION"}},"merges":[[32,22,32,25],[26,22,26,25],[35,26,35,29],[43,10,43,13],[16,22,16,25],[28,18,28,19],[25,22,25,25],[28,10,28,11],[36,2,36,5],[45,2,45,5],[6,4,6,5],[18,22,18,25],[36,14,36,17],[6,16,6,17],[6,18,6,19],[17,22,17,25],[44,18,44,21],[44,10,44,13],[5,10,5,13],[6,22,6,23],[29,12,29,13],[6,24,6,25],[29,14,29,15],[8,22,9,29],[20,22,20,25],[39,2,39,5],[29,22,29,25],[31,10,31,11],[45,10,45,13],[7,28,7,29],[5,14,5,17],[10,27,10,29],[31,22,31,25],[38,2,38,5],[4,10,4,13],[15,22,15,25],[38,14,38,17],[41,18,41,21],[40,2,40,5],[40,14,40,17],[43,6,43,9],[6,6,6,7],[37,6,37,9],[25,16,25,17],[32,1,34,1],[20,27,20,29],[43,18,43,21],[25,8,25,9],[35,2,35,5],[30,6,30,7],[41,2,41,5],[31,27,31,29],[44,6,44,9],[35,14,35,17],[33,22,33,25],[12,27,12,29],[21,27,21,29],[21,1,22,1],[8,1,9,1],[17,1,18,1],[32,27,32,29],[35,22,35,25],[14,27,14,29],[23,27,23,29],[28,14,28,15],[10,22,10,25],[28,6,28,7],[19,22,19,25],[34,22,34,25],[10,1,11,1],[19,1,20,1],[45,6,45,9],[5,6,5,9],[28,22,28,25],[6,2,6,3],[36,10,36,13],[45,18,45,21],[24,1,24,21],[6,12,6,13],[30,14,30,15],[6,14,6,15],[39,14,39,17],[27,27,27,29],[44,14,44,17],[30,22,30,25],[37,2,37,5],[11,22,11,25],[5,26,5,29],[39,6,39,9],[4,26,4,29],[7,24,7,25],[7,26,7,27],[1,1,1,29],[25,27,25,29],[12,1,13,1],[21,22,21,25],[4,6,4,9],[18,27,18,29],[38,10,38,13],[27,18,27,19],[23,22,23,25],[41,14,41,17],[26,12,26,13],[13,22,13,25],[11,27,11,29],[40,10,40,13],[4,1,5,1],[43,2,43,5],[41,10,41,13],[25,12,25,13],[43,14,43,17],[24,22,24,25],[36,6,36,9],[29,27,29,29],[36,18,36,21],[13,27,13,29],[6,20,6,21],[35,10,35,13],[44,2,44,5],[14,6,14,7],[40,1,41,1],[27,22,27,25],[15,27,15,29],[36,22,36,25],[24,27,24,29],[6,26,6,27],[29,16,29,17],[6,28,6,29],[7,1,7,21],[34,26,34,29],[5,2,5,5],[26,27,26,29],[22,22,22,25],[45,14,45,17],[16,27,16,29],[6,8,6,9],[39,18,39,21],[6,10,6,11],[4,2,4,5],[5,18,5,21],[12,22,12,25],[36,26,36,29],[4,14,4,17],[39,10,39,13],[42,1,42,21],[38,18,38,21],[5,22,5,25],[37,10,37,13],[14,22,14,25],[37,14,37,17],[40,6,40,9],[4,18,4,21],[40,18,40,21],[17,27,17,29],[4,22,4,25],[22,27,22,29],[37,18,37,21],[27,8,27,9],[7,22,7,23],[19,27,19,29],[41,6,41,9],[28,27,28,29],[35,6,35,9],[15,1,16,1],[35,18,35,21],[38,6,38,9],[27,12,27,13],[33,26,33,29],[30,27,30,29],[26,8,26,9]],"widths":{"1":19.3,"2":5.3,"3":5.3,"4":5.3,"5":5.3,"6":5.3,"7":5.3,"8":5.3,"9":5.3,"10":5.3,"11":5.3,"12":5.3,"13":5.3,"14":5.3,"15":5.3,"16":5.3,"17":5.3,"18":5.3,"19":5.3,"20":5.3,"21":5.3,"22":5.3,"23":5.3,"24":5.3,"25":5.8,"26":5.3,"27":5.3,"28":5.3,"29":6.0}};
+function isoWeek(d){const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const n=(t.getUTCDay()+6)%7;t.setUTCDate(t.getUTCDate()-n+3);const f=new Date(Date.UTC(t.getUTCFullYear(),0,4));return 1+Math.round(((t-f)/864e5-3+((f.getUTCDay()+6)%7))/7)}
+const fmtDM=new Intl.DateTimeFormat("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"});
+// Pré-remplissage d'une semaine : clé "ligne,colonne" (numérotation Excel) -> texte
+function trameFill(W){
+  const f={}, put=(r,c,v)=>{if(v) f[r+","+c]=v};
+  put(4,1,"SEMAINE n° "+isoWeek(W.monday));
+  for(let d=0;d<7;d++) put(5,2+4*d,fmtDM.format(addDays(W.monday,d)));
+  W.days.forEach((D,d)=>{
+    const b=2+4*d, C=D.cell;
+    // Réanimation (journée) : MAR du roulement, extérieur réa, renfort
+    const rea=[1,2,3,4,5].filter(j=>C[j].role==="REA"||C[j].role==="REA_CONS").concat(C[6].role==="REA"?[6]:[],C[7].role==="REA_R"?[7]:[]);
+    [[10,b],[10,b+1],[11,b],[11,b+1]].forEach(([r,c],i)=>put(r,c,rea[i]&&nm(rea[i])));
+    // Endoscopies (matin)
+    const endo=[1,2,3,4,5,8].filter(j=>isEndo(C[j].role)).concat(C[7].role==="RENFORT"?[7]:[]);
+    [[17,b],[17,b+1],[18,b],[18,b+1]].forEach(([r,c],i)=>put(r,c,endo[i]&&nm(endo[i])));
+    // Consultations d'endoscopie (après-midi) ; cases fusionnées le mardi et le mercredi
+    const cons=[1,2,3,4,5,8].filter(j=>["CONS","CONSX","REA_CONS"].includes(C[j].role)).map(nm);
+    if(TRAME.merges.some(m=>m[0]===26&&m[1]===b+2&&m[3]===b+3)) put(26,b+2,cons.join("/"));
+    else {put(26,b+2,cons[0]); put(26,b+3,cons.slice(1).join("/"))}
+    // Absents (3 lignes de 4 cases)
+    const abs=[1,2,3,4,5,8].filter(j=>C[j].ind).map(nm);
+    abs.slice(0,12).forEach((n,i)=>put(32+Math.floor(i/4),b+i%4,n));
+    // Infos : bloc après consultation lib, réa + consultation, consultations à confier à un extérieur
+    const info=[];
+    [1,2,3,4,5,8].forEach(j=>{if(C[j].role==="BLOC") info.push(nm(j)+" bloc ap-m"); if(C[j].role==="REA_CONS") info.push(nm(j)+" réa le matin, consult. lib ap-m")});
+    const ext=Math.max(0,CONS_NEEDED[d]-cons.length); if(ext) info.push(ext+" consult. endo à confier à un extérieur");
+    put(40,b,info.join(" ; "));
+  });
+  return f;
+}
+const trameFirstRow=4, trameLastRow=45;
+function trameLabel(r,c){const x=TRAME.cells[r+","+c];return x&&x.v}
+function trameEditable(r,c){return r>=7&&!trameLabel(r,c)&&!(r===4&&c===1)}
+function renderTrame(){
+  const fi=document.getElementById("trFrom"); if(!fi.value) fi.value=iso(mondayOf(new Date()<parse(state.start)?parse(state.start):new Date()));
+  const from=mondayOf(parse(fi.value)), n=+document.getElementById("trWeeks").value;
+  const covered=new Set(), span={};
+  TRAME.merges.forEach(([r1,c1,r2,c2])=>{span[r1+","+c1]=[r2-r1+1,c2-c1+1]; for(let r=r1;r<=r2;r++) for(let c=c1;c<=c2;c++) if(r!==r1||c!==c1) covered.add(r+","+c)});
+  const cols=Object.keys(TRAME.widths).map(Number).sort((a,b)=>a-b);
+  let html="";
+  for(let i=0;i<n;i++){
+    const W=buildWeek(addDays(from,7*i)), mi=iso(W.monday), pre=trameFill(W), ed=state.trame[mi]||{};
+    html+=`<div class="trame-wk"><h3>Semaine n° ${isoWeek(W.monday)} · du ${fmtLong.format(W.monday)}</h3><div class="scroll"><table class="trame" data-week="${mi}"><colgroup>`+
+      cols.map(c=>`<col style="width:${Math.round(TRAME.widths[c]*8+6)}px">`).join("")+`</colgroup><tbody>`;
+    for(let r=trameFirstRow;r<=trameLastRow;r++){
+      html+="<tr>";
+      for(const c of cols){
+        const k=r+","+c; if(covered.has(k)) continue;
+        const x=TRAME.cells[k]||{}, sp=span[k]||[1,1], lbl=k==="4,1"?pre[k]:trameLabel(r,c);
+        const val=lbl||(k in ed?ed[k]:pre[k]||""), cls=lbl?"lbl":(k in ed?"edit":pre[k]?"pre":"");
+        const attrs=(sp[0]>1?` rowspan="${sp[0]}"`:"")+(sp[1]>1?` colspan="${sp[1]}"`:"")+(x.bg?` style="background:#${x.bg}"`:"")+
+          (trameEditable(r,c)?` contenteditable="true" data-k="${k}"`:"")+(cls?` class="${cls}"`:"")+(val?` title="${esc(val)}"`:"");
+        html+=`<td${attrs}>${esc(val)}</td>`;
+      }
+      html+="</tr>";
+    }
+    html+=`</tbody></table></div></div>`;
+  }
+  document.getElementById("trOut").innerHTML=html;
+}
+// Saisie dans une case : enregistrée si elle diffère du pré-remplissage
+document.getElementById("trOut").addEventListener("focusout",e=>{
+  const td=e.target.closest("td[data-k]"); if(!td) return;
+  const mi=td.closest("table").dataset.week, k=td.dataset.k, v=td.textContent.trim();
+  const pre=trameFill(buildWeek(parse(mi)))[k]||"";
+  state.trame[mi]=state.trame[mi]||{};
+  if(v===pre) delete state.trame[mi][k]; else state.trame[mi][k]=v;
+  if(!Object.keys(state.trame[mi]).length) delete state.trame[mi];
+  save(); td.className=v===pre?(pre?"pre":""):"edit"; td.title=v;
+});
+document.getElementById("trOut").addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.closest("td[data-k]")){e.preventDefault();e.target.blur()}});
+["trFrom","trWeeks"].forEach(id=>document.getElementById(id).onchange=renderTrame);
+document.getElementById("trPrint").onclick=()=>window.print();
+// Export Excel : une feuille par semaine, construite sur la mise en page de la trame
+// (libellés, couleurs, gras, fusions, largeurs ; Calibri 10, bordures fines, séparation épaisse entre les jours, paysage sur une page)
+function trameSheet(wb,name,vals){
+  const ws=wb.addWorksheet(name,{pageSetup:{orientation:"landscape",paperSize:9,fitToPage:true,fitToWidth:1,fitToHeight:1,margins:{left:.3,right:.3,top:.4,bottom:.4,header:.2,footer:.2}}});
+  Object.entries(TRAME.widths).forEach(([c,w])=>ws.getColumn(+c).width=w);
+  const DAYCOL=[2,6,10,14,18,22,26], thin={style:"thin"}, med={style:"medium"};
+  for(let r=1;r<=trameLastRow;r++){
+    ws.getRow(r).height=r===41||r===42?36:14.5;
+    for(let c=1;c<=29;c++){
+      if(r>=42&&c>21) continue;
+      const k=r+","+c, cell=ws.getCell(r,c), x=TRAME.cells[k]||{}, v=k==="4,1"?vals[k]:x.v||vals[k];
+      if(v) cell.value=v;
+      cell.font={name:"Calibri",size:r===1?16:10,bold:!!x.b||r===1};
+      cell.alignment={horizontal:c===1&&r>6?"left":"center",vertical:"middle",wrapText:r===40||r===41};
+      if(x.bg) cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF"+x.bg}};
+      if(r>=4) cell.border={top:thin,bottom:thin,left:DAYCOL.includes(c)||c===1?med:thin,right:c===29?med:thin};
+    }
+  }
+  TRAME.merges.forEach(([r1,c1,r2,c2])=>ws.mergeCells(r1,c1,r2,c2));
+  return ws;
+}
+function loadScript(src){return new Promise((ok,ko)=>{const s=document.createElement("script");s.src=src;s.onload=ok;s.onerror=ko;document.head.appendChild(s)})}
+document.getElementById("trXlsx").onclick=async()=>{
+  const msg=document.getElementById("trMsg"); msg.textContent="Préparation du fichier Excel…";
+  try{
+    if(!window.ExcelJS) await loadScript("https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js");
+    const wb=new ExcelJS.Workbook();
+    const from=mondayOf(parse(document.getElementById("trFrom").value||state.start)), n=+document.getElementById("trWeeks").value;
+    for(let i=0;i<n;i++){
+      const W=buildWeek(addDays(from,7*i)), mi=iso(W.monday), vals={...trameFill(W),...(state.trame[mi]||{})};
+      trameSheet(wb,"S"+isoWeek(W.monday)+" "+W.monday.getFullYear(),vals);
+    }
+    const buf=await wb.xlsx.writeBuffer();
+    const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
+    a.download=`planning-service-S${isoWeek(from)}${n>1?"-S"+isoWeek(addDays(from,7*(n-1))):""}.xlsx`; a.click();
+    msg.textContent=`Fichier Excel créé : ${n} semaine${n>1?"s":""}.`;
+  }catch(err){msg.textContent="Export impossible : la bibliothèque Excel n'a pas pu être chargée (connexion internet nécessaire)."}
+};
 
 /* ---------- CSV ---------- */
 document.getElementById("csvBtn").onclick=()=>{
@@ -1189,7 +1331,7 @@ document.getElementById("impFile").onchange=e=>{const f=e.target.files[0]; if(!f
   r.readAsText(f); e.target.value="";};
 document.getElementById("resetBtn").onclick=()=>{ if(!confirm("Supprimer toutes les indisponibilités, tous les remplacements et tous les échanges de réa, et remettre les paramètres par défaut ?")) return;
   try{localStorage.removeItem(STORE)}catch(e){} state=null; load(); load2();};
-function load2(){ if(typeof fillOffSelect==="function") setTimeout(fillOffSelect);state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; delete state.jcRea; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
+function load2(){ if(typeof fillOffSelect==="function") setTimeout(fillOffSelect);state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; delete state.jcRea; state.trame=state.trame||{}; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
 
 /* ---------- Onglets ---------- */
 // Les onglets « par MAR » et « par poste » partagent la même section (période, alertes, export)
@@ -1199,6 +1341,7 @@ document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) r
   const sec=t==="poste"?"planning":t;
   if(t==="prat") renderPrat();
   if(t==="cons") renderCons();
+  if(t==="trame") renderTrame();
   document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+sec);
   if(sec==="planning"){planView=t==="poste"?"poste":"mar"; renderPlanning()}};
 ["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
