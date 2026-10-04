@@ -364,7 +364,7 @@ const nm=j=>state.names[j]||("MAR "+j);
 
 /* ---------- Trame théorique ---------- */
 // Ordre d'entrée en réa à partir de la semaine 1 du cycle
-const ORDER=[5,1,2,4,3];
+const ORDER=[5,3,1,2,4];
 function baseWeek(w){ // w = 1..10
   const P=i=>ORDER[((w-1+i)%5+5)%5], k=w, cyc=w<=5?"A":"B", s={};
   const first=P(0), next=P(1);
