@@ -57,6 +57,8 @@ Pour partager les données entre tous les postes, la page peut les enregistrer d
 3. Enregistrez, puis cliquez sur **Déployer → Nouveau déploiement**, de type **Application Web**, avec « Exécuter en tant que : Moi » et « Accès : Tout le monde ». Autorisez l'accès demandé.
 4. Copiez l'URL de l'application Web (elle se termine par `/exec`), puis, dans la page, collez-la dans **Paramètres → Stockage en ligne** et cliquez sur **Connecter**.
 
+L'URL du service est inscrite dans le site (`CLOUD_URL_DEFAULT`) : tous les postes s'y connectent automatiquement après la saisie du code. Un poste peut s'en détacher avec **Désactiver**.
+
 Fonctionnement :
 
 - **Partage** : tous les postes connectés voient les mêmes indisponibilités, échanges, remplacements, saisies de la trame, noms et date de début.
