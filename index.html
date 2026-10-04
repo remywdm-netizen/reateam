@@ -426,11 +426,15 @@ function fixConsults(s,next,breaks,mon){
     if(blocOk(next[c][bd],bd)===1) continue;
     const cdi=iso(addDays(mon,cd)), bdi=iso(addDays(mon,7+bd)), avail=j=>!indispoOn(j,cdi)&&!indispoOn(j,bdi);
     const hold=[1,2,3,4,5].find(j=>next[j][bd]==="BLOC");
-    const pick=lvl=>[hold,...[1,2,3,4,5]].find(j=>j&&j!==c&&avail(j)&&s[j][cd]==="ENDO"&&blocOk(next[j][bd],bd)===lvl);
+    // on évite de donner les deux consultations lib de la semaine au même MAR (sauf si c'est la seule solution :
+    // la consultation lib doit toujours être suivie de son bloc)
+    const oc=cd===1?3:1; let avoid=true; const twoLib=j=>avoid&&isLib(s[j][oc],oc);
+    const pick=lvl=>[hold,...[1,2,3,4,5]].find(j=>j&&j!==c&&avail(j)&&!twoLib(j)&&s[j][cd]==="ENDO"&&blocOk(next[j][bd],bd)===lvl);
     // dernier recours : le MAR en 2e semaine de réa (en endoscopie la semaine suivante), remplacé en réa par le renfort
-    const rea2=()=>[1,2,3,4,5].find(j=>j!==c&&avail(j)&&s[j][cd]==="REA"&&next[j][0]!=="REA"&&blocOk(next[j][bd],bd));
+    const rea2=()=>[1,2,3,4,5].find(j=>j!==c&&avail(j)&&!twoLib(j)&&s[j][cd]==="REA"&&next[j][0]!=="REA"&&blocOk(next[j][bd],bd));
     let to=pick(1)||(blocOk(next[c][bd],bd)===2?null:pick(2));
     if(!to&&!blocOk(next[c][bd],bd)){const r2=rea2(); if(r2){s[r2]=s[r2].slice();s[c]=s[c].slice();s[r2][cd]="REA_CONS";s[c][cd]="ENDO";continue}}
+    if(!to&&!blocOk(next[c][bd],bd)){avoid=false; to=pick(1)||pick(2)}
     if(to){s[to]=s[to].slice();s[c]=s[c].slice();s[to][cd]=s[c][cd]==="REA_CONS"?(cd===1?"CONS":"CONSX"):s[c][cd];s[c][cd]=s[c][cd]==="REA_CONS"?"REA":"ENDO"}
     else if(!blocOk(next[c][bd],bd)&&breaks) breaks.push({d:cd,cons:c});
   }
@@ -536,18 +540,30 @@ function applySwaps(cell,di){
 // Consultation lib impossible : cherche un MAR du roulement en endoscopie ce jour-là qui pourra aussi faire le bloc
 // de la semaine suivante. On préfère un MAR en endoscopie ce jour-là ; sinon un MAR dont la consultation simple
 // de ce jour-là sera confiée à un extérieur.
-function proposeAlt(from,plan,d,date,s,cell){
+// Titulaire actuel de la consultation lib du jour cd (1 = mardi, 3 = jeudi) de la semaine, remplacements compris
+function libOwner(monday,cd){
+  const di=iso(addDays(mondayOf(monday),cd)), a=state.afr.find(x=>x.date===di);
+  if(a&&!indispoOn(8,di)) return 8;
+  const x=state.swaps.find(x=>x.date===di&&swapApplies(x)&&isLib(x.role,cd)); if(x) return x.to;
+  return libCons(weekRows(monday).s,cd);
+}
+// Un même praticien ne fait pas les deux consultations lib (mardi et jeudi) d'une même semaine
+const hasOtherLib=(j,date,d)=>libOwner(mondayOf(date),d===1?3:1)===j;
+function proposeAlt(from,plan,d,date,s,cell,allowTwo){
   const bd=addDays(date,d===1?6:5), blocDate=iso(bd), nd=d===1?0:1, nextS=weekRows(mondayOf(bd)).s;
   const busy=j=>s[j].filter(r=>r==="CONS"||r==="CONSX"||r==="BLOC").length;
-  const base=[1,2,3,4,5].filter(j=>j!==from&&cell[j].role==="ENDO"&&!cell[j].ind&&!indispoOn(j,blocDate)&&!state.swaps.some(x=>x.blocDate===blocDate&&x.to===j));
+  const two=j=>!allowTwo&&hasOtherLib(j,date,d);
+  const base=[1,2,3,4,5].filter(j=>j!==from&&!two(j)&&cell[j].role==="ENDO"&&!cell[j].ind&&!indispoOn(j,blocDate)&&!state.swaps.some(x=>x.blocDate===blocDate&&x.to===j));
   const rank=(a,b)=>busy(a)-busy(b)||a-b;
   const endo=base.filter(j=>nextS[j][nd]==="ENDO").sort(rank);
   if(endo.length) return {date:iso(date),from,to:endo[0],role:plan,blocDate};
   const cons=base.filter(j=>nextS[j][nd]==="CONS"&&libRole("CONS",nd)==="CONS").sort(rank);
   if(cons.length) return {date:iso(date),from,to:cons[0],role:plan,blocDate,ext:true};
   // Dernier recours : le MAR en 2e semaine de réa (en endoscopie la semaine suivante) ; le renfort le remplace en réa s'il est libre
-  const r2=[1,2,3,4,5].find(j=>j!==from&&cell[j].role==="REA"&&!cell[j].ind&&nextS[j][0]!=="REA"&&blocOk(nextS[j][nd],nd)&&!indispoOn(j,blocDate));
+  const r2=[1,2,3,4,5].find(j=>j!==from&&!two(j)&&cell[j].role==="REA"&&!cell[j].ind&&nextS[j][0]!=="REA"&&blocOk(nextS[j][nd],nd)&&!indispoOn(j,blocDate));
   if(r2) return {date:iso(date),from,to:r2,role:plan,blocDate,rea:true,ext:blocOk(nextS[r2][nd],nd)===2};
+  // À éviter : un MAR qui a déjà l'autre consultation lib de la semaine (proposé à côté d'AFR, jamais appliqué d'office)
+  if(!allowTwo){const t=proposeAlt(from,plan,d,date,s,cell,true); if(t) return {...t,twoLib:true}}
   return null;
 }
 
@@ -557,6 +573,7 @@ function proposeAlt(from,plan,d,date,s,cell){
 const afrFree=cell=>!cell[8].role&&!cell[8].ind;
 function afrLib(cell,role,from,blocDate,di){
   if(!afrFree(cell)||indispoOn(8,blocDate)||state.afr.some(a=>a.date===blocDate||a.blocDate===blocDate)) return null;
+  const dd=parse(di).getDay()-1; if(hasOtherLib(8,parse(di),dd)) return null;
   if(role==="REA_CONS") role=parse(di).getDay()===2?"CONS":"CONSX";   // AFR ne fait pas de réa
   return {afr:{date:di,role,from,blocDate}};
 }
@@ -630,9 +647,9 @@ function buildWeek(monday){
         if(ab){
           const alt=proposeAlt(j,c.role,d,date,s,cell);
           let t=`${dl} ap-m : consultation lib de ${nm(j)} à déplacer, car ${nm(j)} est indisponible le jour du bloc qui suit (${fmtDay.format(parse(bdi))} ap-m, ${ab.motif}).`;
-          const fa2=alt&&alt.rea?afrLib(cell,c.role,j,bdi,di):null;
+          const fa2=alt&&(alt.rea||alt.twoLib)?afrLib(cell,c.role,j,bdi,di):null;
           const cmp=fa2?compareOptions(alt,fa2):null;
-          if(alt) alerts.push(["warn",t+(fa2?` Deux possibilités : 1) `:` Proposition : `)+`${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""} assure la consultation lib puis ce bloc`+(alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur`:"")+(fa2?` ; 2) ${nm(8)} assure la consultation lib puis ce bloc.`+(cmp?cmp.txt:""):"."),{swap:alt,...(fa2||{}),best:cmp&&cmp.best}]);
+          if(alt) alerts.push(["warn",t+(fa2?` Deux possibilités : 1) `:` Proposition : `)+`${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""}${alt.twoLib?` (a déjà la consultation lib du ${d===1?"jeudi":"mardi"} : à éviter)`:""} assure la consultation lib puis ce bloc`+(alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur`:"")+(fa2?` ; 2) ${nm(8)} assure la consultation lib puis ce bloc.`+(cmp?cmp.txt:""):"."),{swap:alt,...(fa2||{}),best:cmp&&cmp.best}]);
           else{const fa=afrLib(cell,c.role,j,bdi,di); alerts.push(["crit",t+(fa?` Aucun MAR du roulement n'est libre. Proposition : ${nm(8)} assure la consultation lib puis ce bloc.`:` Pas d'alternative automatique : aucun MAR en endoscopie ce jour-là n'est libre pour ce bloc.`),fa]);}
         }
       }
@@ -642,9 +659,9 @@ function buildWeek(monday){
         const alt=proposeAlt(j,c.plan,d,date,s,cell);
         let t=`${dl} ap-m : consultation lib de ${nm(j)} impossible (${c.ind.motif}).`;
         if(alt){
-          t+=` Proposition : ${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""} assure la consultation lib puis le bloc du ${fmtDay.format(parse(alt.blocDate))} ap-m à la place de ${nm(j)}`+
+          t+=` Proposition : ${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""}${alt.twoLib?` (a déjà la consultation lib du ${d===1?"jeudi":"mardi"} : à éviter)`:""} assure la consultation lib puis le bloc du ${fmtDay.format(parse(alt.blocDate))} ap-m à la place de ${nm(j)}`+
             (alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur.`:".");
-          const fa2=alt.rea?afrLib(cell,c.plan,j,alt.blocDate,di):null;
+          const fa2=alt.rea||alt.twoLib?afrLib(cell,c.plan,j,alt.blocDate,di):null;
           const cmp=fa2?compareOptions(alt,fa2):null;
           if(fa2) t=t.replace(" Proposition : "," Deux possibilités : 1) ").replace(/\.$/,"")+` ; 2) ${nm(8)} assure la consultation lib puis ce bloc.`+(cmp?cmp.txt:"");
           alerts.push(["warn",t,{swap:alt,...(fa2||{}),best:cmp&&cmp.best}]);
@@ -665,6 +682,7 @@ function buildWeek(monday){
   ext.forEach(e=>alerts.push(["warn",`${DAYS[e.d]} ap-m : ${nm(e.j)} assure le bloc qui suit sa consultation lib ; sa consultation de ce jour-là est à confier à un MAR extérieur.`]));
   breaks.filter(b=>!days[b.d].cell[b.cons].replacedBy).forEach(b=>alerts.push(["crit",`${DAYS[b.d]} ap-m : consultation lib de ${nm(b.cons)} impossible à garder, car aucun MAR en endoscopie ce jour-là ne peut assurer le bloc qui suit. Modifiez l'échange de réa.`]));
   // 1re semaine de réa : aucune absence ; on propose d'échanger la période de réa
+  [1,2,3,4,5,8].forEach(j=>{ if(isLib(days[1].cell[j].role,1)&&isLib(days[3].cell[j].role,3)) alerts.push(["warn",`${nm(j)} a les deux consultations lib de la semaine (mardi et jeudi) : à éviter.`]) });
   const absDays=days.filter(D=>D.cell[first].ind);
   if(absDays.length){
     const motifs=[...new Set(absDays.map(D=>D.cell[first].ind.motif))].join(", "), jours=absDays.map(D=>DAYS[D.date.getDay()-1].toLowerCase()).join(", ");
@@ -770,6 +788,7 @@ function libTransfer(weeks,plus,minus,accept){
       const c=D.cell[s]; if(!(c.role==="CONS"||c.role==="CONSX")||!isLib(c.role,cd)||c.swapped||c.ind) continue;
       for(const t of minus){
         const ct=D.cell[t], nt=N.cell[t];
+        if(isLib(W.days[cd===1?3:1].cell[t].role,cd===1?3:1)) continue;   // pas les deux consultations lib de la semaine
         if(ct.role!=="ENDO"||ct.ind||nt.ind||state.swaps.some(x=>x.blocDate===bdi&&x.to===t)) continue;
         const ok=blocOk(nt.role,cd===1?0:1); if(!ok) continue;
         const pr={swap:{id:"tmp",date:D.di,from:s,to:t,role:c.role,blocDate:bdi,ext:ok===2,bal:true},text:`Proposition : ${nm(s)} cède sa consultation lib du ${fmtWd.format(D.date)} à ${nm(t)}, qui assure aussi le bloc du ${fmtWd.format(bd)} ap-m`+(ok===2?` (sa consultation de ce jour-là passe à un extérieur).`:".")};
@@ -1079,7 +1098,7 @@ document.getElementById("regenBtn").onclick=()=>{
   const from=mondayOf(parse(document.getElementById("viewFrom").value||state.start)), n=+document.getElementById("viewWeeks").value+QUARTER;
   for(let guard=0;guard<200;guard++){
     let act=null;
-    for(let i=0;i<n&&!act;i++){const W=buildWeek(addDays(from,7*i)); act=W.alerts.map(a=>a[2]).find(x=>x&&(x.reaSwap||x.swap))}
+    for(let i=0;i<n&&!act;i++){const W=buildWeek(addDays(from,7*i)); act=W.alerts.map(a=>a[2]).find(x=>x&&(x.reaSwap||(x.swap&&!x.swap.twoLib)))}
     if(!act) break;
     if(act.reaSwap) state.reaSwaps.push({id:Date.now().toString(36)+guard,...act.reaSwap});
     else state.swaps.push({id:Date.now().toString(36)+guard,...act.swap});
@@ -1291,6 +1310,7 @@ function renderRules(){
       `Consultations : lundi ×2, mardi ×1, mercredi ×1, jeudi ×2. Le matin, le consultant est en endoscopie.`,
       `Consultation lib : celle du mardi et l'une des deux du jeudi. Le consultant du mardi est au bloc le lundi après-midi suivant, celui du jeudi le mardi après-midi suivant. Une consultation est impossible ces après-midi-là.`,
       `Une consultation lib ne se fait jamais sans le bloc qui suit : si le consultant ne peut pas assurer ce bloc (absence, réa…), la consultation passe à un MAR qui le pourra.`,
+      `Un même praticien ne fait pas les deux consultations lib (mardi et jeudi) d'une même semaine : les remplaçants proposés en tiennent compte, et le cas est signalé s'il se présente.`,
       `Les autres consultations peuvent être assurées par un MAR extérieur.`,
       `En dernier recours, le MAR en 2e semaine de réa peut faire une consultation lib l'après-midi (le renfort prend sa place en réa s'il est libre, sinon la réa est à 2 l'après-midi) ; il assure le bloc qui suit la semaine suivante, en endoscopie.`]],
     ["Temps partiels",[
