@@ -314,7 +314,7 @@ header{position:relative}
 <script>
 /* ---------- Code d'accès ---------- */
 // Empreinte SHA-256 de "planning-mar:<CODE EN MAJUSCULES>". Pour changer le code, remplacez cette valeur.
-const ACCESS_HASH="33fe181a2d156c95ff906f78794596c148ba21f426329ab6fc06c8074e525f05";
+const ACCESS_HASH="52e3a16760d84d47badeb8295d201ec6d0de52c9dc60198abc680da684eba1db";
 const ACCESS_KEY="planning-mar-acces", ACCESS_DAYS=30;
 async function sha256(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function unlock(){document.body.classList.remove("locked")}
