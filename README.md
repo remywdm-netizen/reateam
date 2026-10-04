@@ -48,6 +48,24 @@ Ce code évite un accès fortuit, mais ce n'est pas une vraie sécurité. Le sit
 3. Dans *Settings → Pages*, choisissez la branche `main` et le dossier `/ (root)`, puis enregistrez.
 4. La page est disponible à l'adresse `https://<votre-compte>.github.io/planning-mar/`.
 
+## Stockage en ligne (facultatif)
+
+Pour partager les données entre tous les postes, la page peut les enregistrer dans un tableur Google, via un petit script Google Apps Script : [`apps-script/Code.gs`](apps-script/Code.gs).
+
+1. Créez un tableur Google vide (https://sheets.new), par exemple « Planning MAR – données ».
+2. Dans le tableur, ouvrez **Extensions → Apps Script**, remplacez tout le contenu par celui de `apps-script/Code.gs`, puis remplacez `REMPLACEZ-PAR-VOTRE-CODE` par le code d'accès du site.
+3. Enregistrez, puis cliquez sur **Déployer → Nouveau déploiement**, de type **Application Web**, avec « Exécuter en tant que : Moi » et « Accès : Tout le monde ». Autorisez l'accès demandé.
+4. Copiez l'URL de l'application Web (elle se termine par `/exec`), puis, dans la page, collez-la dans **Paramètres → Stockage en ligne** et cliquez sur **Connecter**.
+
+Fonctionnement :
+
+- **Partage** : tous les postes connectés voient les mêmes indisponibilités, échanges, remplacements, saisies de la trame, noms et date de début.
+- **Enregistrement** : chaque modification est envoyée automatiquement, et la page se met à jour toutes les minutes. Un indicateur dans l'en-tête affiche l'état : à jour, enregistré, hors ligne ou erreur.
+- **Contrôle d'accès** : le code d'accès est vérifié par le serveur Google ; sans lui, rien ne peut être lu ni modifié.
+- **Modifications simultanées** : si deux postes modifient en même temps, le second recharge les données à jour et demande de refaire sa dernière modification.
+- **Hors ligne** : la modification est gardée sur le poste et envoyée au retour de la connexion, même après un rechargement de la page.
+- **Tableur** : la feuille « Données » contient la sauvegarde complète, et la feuille « Indisponibilités » une liste lisible des absences.
+
 ## Données
 
-Les indisponibilités sont enregistrées dans le navigateur de chaque utilisateur (localStorage). Pour partager une saisie, utilisez **Paramètres → Exporter les données**, puis **Importer un fichier** sur l'autre poste. Aucune donnée n'est envoyée sur un serveur.
+Sans stockage en ligne, les indisponibilités sont enregistrées dans le navigateur de chaque utilisateur (localStorage). Pour partager une saisie, utilisez **Paramètres → Exporter les données**, puis **Importer un fichier** sur l'autre poste. Aucune donnée n'est envoyée sur un serveur.
