@@ -692,9 +692,9 @@ function buildWeek(monday){
         const alt=proposeAlt(j,c.plan,d,date,s,cell);
         let t=`${dl} ap-m : consultation lib de ${nm(j)} impossible (${c.ind.motif}).`;
         if(alt){
-          t+=` Proposition : ${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""}${alt.twoLib?` (a déjà la consultation lib du ${d===1?"jeudi":"mardi"} : à éviter)`:""} assure la consultation lib puis le bloc du ${fmtDay.format(parse(alt.blocDate))} ap-m à la place de ${nm(j)}`+
+          t+=` Proposition : ${nm(alt.to)}${alt.rea?` (en 2e semaine de réa, en dernier recours ; ${cell[7].role?"la réa sera à 2 l'après-midi":nm(7)+" prend sa place en réa"})`:""}${alt.twoLib?` (a déjà la consultation lib du ${d===1?"jeudi":"mardi"} : à éviter)`:""} assure la consultation lib${alt.blocDate?` puis le bloc du ${fmtDay.format(parse(alt.blocDate))} ap-m`:""} à la place de ${nm(j)}`+
             (alt.ext?` ; sa consultation de ce jour-là sera confiée à un MAR extérieur.`:".");
-          const fa2=alt.rea||alt.twoLib?afrLib(cell,c.plan,j,alt.blocDate,di):null;
+          const fa2=(alt.rea||alt.twoLib)&&alt.blocDate?afrLib(cell,c.plan,j,alt.blocDate,di):null;
           const cmp=fa2?compareOptions(alt,fa2):null;
           if(fa2) t=t.replace(" Proposition : "," Deux possibilités : 1) ").replace(/\.$/,"")+` ; 2) ${nm(8)} assure la consultation lib puis ce bloc.`+(cmp?cmp.txt:"");
           alerts.push(["warn",t,{swap:alt,...(fa2||{}),best:cmp&&cmp.best}]);
