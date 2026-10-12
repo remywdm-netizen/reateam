@@ -130,6 +130,12 @@ table.half td[data-j]:hover{background:#f0f6f6}
 .annual td.al{color:var(--crit);font-weight:700;background:#fff8f6}
 .annual tr.mo th{background:#f6f9f9;font-weight:700}
 .annual td.now{outline:2px solid #f2b705;outline-offset:-2px}
+.popmenu{position:fixed;z-index:50;background:var(--paper);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:6px;min-width:230px;max-width:300px}
+.popmenu p{margin:4px 6px 8px;font-size:.85em;color:var(--muted)}
+.popmenu button{display:block;width:100%;text-align:left;background:none;border:0;border-radius:6px;padding:7px 8px;font:inherit;color:inherit;cursor:pointer}
+.popmenu button:hover,.popmenu button:focus-visible{background:var(--endo,#eef5ee)}
+.popmenu button[aria-checked="true"]{font-weight:700}
+.popmenu button[aria-checked="true"]::after{content:" ✓"}
 .annual td.dsr{box-shadow:inset 0 0 0 2px #2b6cb0}
 .annual td.dsr.ko{box-shadow:inset 0 0 0 2px var(--crit)}
 .dsr-l{border:2px solid #2b6cb0;padding:0 4px}
@@ -157,7 +163,7 @@ header{position:relative}
   /* planning annuel : l'année sur une page A4 paysage */
   body.print-annee header{display:none}
   body.print-annee main{max-width:none;padding:0}
-  #tab-annee .note,#anLegend{display:none}
+  #tab-annee .note,#anLegend,#anMenu{display:none!important}
   #tab-annee .print-title{display:block!important;margin:0 0 3mm;font-size:13pt}
   #tab-annee .scroll{overflow:visible}
   .annual{width:100%;table-layout:fixed;font-size:6.3pt}
@@ -238,8 +244,9 @@ header{position:relative}
   </div>
   <div class="legend" id="anLegend"></div>
   <div class="scroll"><div id="anOut"></div></div>
+  <div class="popmenu" id="anMenu" role="menu" hidden></div>
   <p class="print-legend" style="display:none">R1 / R2 : 1re / 2e semaine de réa · E : endoscopie · case vide : hors réa · C congé, F formation, M maladie, R récupération, G garde, T temps partiel, A autre (semaine entière) · chiffre en exposant : jours d'absence dans la semaine.</p>
-  <p class="note">Une colonne par semaine (numéro de semaine ISO). R1 / R2 : 1re / 2e semaine de réa ; E : endoscopie ; case vide : hors réa (à partir du 5 avril 2027). Une absence d'une semaine entière remplace la case par son motif ; une absence partielle est signalée par le nombre de jours. Cliquez sur une semaine pour l'ouvrir dans le planning.</p>
+  <p class="note">Une colonne par semaine (numéro de semaine ISO). R1 / R2 : 1re / 2e semaine de réa ; E : endoscopie ; case vide : hors réa (à partir du 5 avril 2027). Une absence d'une semaine entière remplace la case par son motif ; une absence partielle est signalée par le nombre de jours. Cliquez sur la case d'un MAR pour ajouter ou retirer un desiderata de réa 1 cette semaine-là, ou pour ouvrir la semaine dans le planning. Un clic sur les lignes REA 1 et Alertes ouvre directement la semaine.</p>
 </section>
 
 <!-- RÉCAPITULATIF PAR PRATICIEN -->
@@ -1052,7 +1059,7 @@ function renderAnnual(){
       const txt=full?(MOT[mot]||"A"):st, sup=!full&&ab.length?`<sup>${ab.length}</sup>`:"";
       const ds=state.desirs.find(d=>+d.who===j&&d.monday===iso(W.monday)), dOk=ds&&(ds.type==="want")===(st==="R1");
       const tip=`${nm(j)} · semaine ${isoWeek(W.monday)} (${fmtLong.format(W.monday)}) : ${st==="R1"?"1re semaine de réa":st==="R2"?"2e semaine de réa":st==="E"?"endoscopie":"hors réa"}`+(ab.length?` · absent ${ab.length} j (${[...new Set(ab.map(D=>D.cell[j].ind.motif))].join(", ")})`:"")+(ds?` · desiderata : ${DESIR_TXT[ds.type]} (${dOk?"respecté":"non respecté"})`:"");
-      h+=`<td class="${cls}${iso(W.monday)===today?" now":""}${ds?(dOk?" dsr":" dsr ko"):""}" data-w="${iso(W.monday)}" title="${esc(tip)}">${txt}${sup}</td>`;
+      h+=`<td class="${cls}${iso(W.monday)===today?" now":""}${ds?(dOk?" dsr":" dsr ko"):""}" data-j="${j}" data-w="${iso(W.monday)}" title="${esc(tip)}">${txt}${sup}</td>`;
     });
     h+=`</tr>`;
   }
@@ -1073,8 +1080,37 @@ document.getElementById("anYear").onchange=renderAnnual;
 document.getElementById("anPrint").onclick=()=>{document.body.classList.add("print-annee"); window.print()};
 window.addEventListener("afterprint",()=>document.body.classList.remove("print-annee"));
 // clic sur une semaine : ouverture dans le planning par MAR
+// clic sur la case d'un MAR : menu des desiderata de réa 1 de la semaine (ou ouverture de la semaine)
+const anMenu=document.getElementById("anMenu");
+const openWeek=w=>{anMenu.hidden=true; document.getElementById("viewFrom").value=w; document.querySelector('nav button[data-tab="planning"]').click()};
 document.getElementById("anOut").onclick=e=>{const td=e.target.closest("[data-w]"); if(!td) return;
-  document.getElementById("viewFrom").value=td.dataset.w; document.querySelector('nav button[data-tab="planning"]').click()};
+  if(!td.dataset.j) return openWeek(td.dataset.w);
+  const j=+td.dataset.j, w=td.dataset.w, cur=state.desirs.find(d=>+d.who===j&&d.monday===w);
+  const st=cur?proposeDesir(cur):null, etat=!cur?"":st.ok?" · respecté":st.none?` · non satisfait (${st.none})`:" · échange proposé dans le planning";
+  anMenu.innerHTML=`<p><strong>${esc(nm(j))}</strong> · semaine ${isoWeek(parse(w))} (${fmtLong.format(parse(w))})${esc(etat)}</p>`+
+    ["want","avoid"].map(t=>`<button role="menuitemradio" aria-checked="${cur&&cur.type===t}" data-act="${t}">${DESIR_LABEL[t]}</button>`).join("")+
+    (cur?`<button role="menuitem" data-act="del">Retirer le desiderata</button>`:"")+
+    `<button role="menuitem" data-act="open">Ouvrir la semaine dans le planning</button>`;
+  anMenu.dataset.j=j; anMenu.dataset.w=w; anMenu.hidden=false;
+  const r=td.getBoundingClientRect(), mw=anMenu.offsetWidth, mh=anMenu.offsetHeight;
+  anMenu.style.left=Math.max(8,Math.min(r.left,innerWidth-mw-8))+"px";
+  anMenu.style.top=(r.bottom+mh+8<innerHeight?r.bottom+4:Math.max(8,r.top-mh-4))+"px";
+  anMenu.querySelector("button").focus();
+};
+anMenu.onclick=e=>{const b=e.target.closest("button[data-act]"); if(!b) return;
+  const j=+anMenu.dataset.j, w=anMenu.dataset.w, act=b.dataset.act;
+  if(act==="open") return openWeek(w);
+  const old=state.desirs.find(d=>+d.who===j&&d.monday===w);
+  if(old){   // l'ancien souhait et les échanges qu'il avait entraînés sont retirés
+    const gone=state.reaSwaps.filter(x=>x.desir===old.id).map(x=>x.id);
+    state.desirs=state.desirs.filter(d=>d!==old); state.reaSwaps=state.reaSwaps.filter(x=>x.desir!==old.id&&!gone.includes(x.comp));
+  }
+  if(act!=="del") state.desirs.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),who:j,monday:w,type:act,note:old?old.note:""});
+  anMenu.hidden=true; save(); renderAnnual(); renderIndispo(); renderPlanning();
+};
+document.addEventListener("click",e=>{if(!anMenu.hidden&&!anMenu.contains(e.target)&&!e.target.closest("#anOut td[data-j]")) anMenu.hidden=true});
+document.addEventListener("keydown",e=>{if(e.key==="Escape") anMenu.hidden=true});
+window.addEventListener("scroll",()=>{anMenu.hidden=true},true);
 
 /* ---------- Récapitulatif par praticien ---------- */
 // Planning d'un MAR semaine par semaine (matin / après-midi) et totaux de la période, en demi-journées
@@ -1614,7 +1650,7 @@ function renderRules(){
       `Congé, garde ou maladie en 1re semaine de réa : le planning propose d'abord d'échanger la semaine 1 de l'absent avec la semaine 2 du MAR suivant (inversion du relais, sans déséquilibre). Sinon, un MAR en endoscopie fait la seule semaine 1 de l'absent (qui garde sa semaine 2), ou les 2 semaines si l'absence continue. Un rééquilibrage est ensuite proposé dans l'année.`,
       `Équilibre vérifié sur l'année (semaines ISO) en décomptant uniquement les 1res semaines de réa et les consultations lib de chaque MAR, indépendamment du temps de travail. Après un échange, le rééquilibrage rend une 1re semaine de réa dans l'année. On évite qu'un MAR enchaîne 3 semaines de réa ou plus.`,
       `Consultation lib impossible : un MAR du roulement en endoscopie ce jour-là et libre pour le bloc suivant est proposé. À défaut, deux possibilités (MAR en 2e semaine de réa ou AFR) sont simulées, et celle qui a le moins de conséquences est recommandée. Les autres consultations sont à confier à un extérieur.`,
-      `Desiderata de réa 1 (onglet Indisponibilités) : semaines où un MAR souhaite être, ou ne pas être, en 1re semaine de réa. S'il le faut, un échange est proposé (inversion du relais de préférence, sinon échange des 2 semaines de réa puis rééquilibrage) et appliqué par « Régénérer », sauf s'il fait enchaîner 3 semaines de réa. Un desiderata ne passe jamais avant une absence, et les autres échanges le respectent.`,
+      `Desiderata de réa 1 (onglet Indisponibilités, ou clic sur la case du MAR dans la vue annuelle) : semaines où un MAR souhaite être, ou ne pas être, en 1re semaine de réa. S'il le faut, un échange est proposé (inversion du relais de préférence, sinon échange des 2 semaines de réa puis rééquilibrage) et appliqué par « Régénérer », sauf s'il fait enchaîner 3 semaines de réa. Un desiderata ne passe jamais avant une absence, et les autres échanges le respectent.`,
       `Une récupération s'ajoute ou se retire d'un clic sur la case du MAR dans Planning par MAR.`,
       `Bouton « Régénérer le planning » : après une mise à jour des indisponibilités, il retire les échanges devenus inutiles et applique toutes les propositions.`]],
     ["Alertes",[
