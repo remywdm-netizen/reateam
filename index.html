@@ -265,10 +265,14 @@ header{position:relative}
   <div class="panel">
     <div class="row" style="justify-content:space-between;margin-bottom:10px">
       <h2 style="margin:0">Indisponibilités enregistrées</h2>
+      <label class="btn ghost small" style="flex-direction:row;color:var(--accent);cursor:pointer">Importer un fichier (CSV)
+        <input type="file" id="iImport" accept=".csv,text/csv,text/plain" hidden>
+      </label>
       <label style="flex-direction:row;align-items:center;gap:6px">Filtrer
         <select id="iFilter"><option value="">Tous les MAR</option></select>
       </label>
     </div>
+    <p class="note" id="iImpMsg" role="status"></p>
     <div class="scroll"><div id="iList"></div></div>
   </div>
   <div class="panel">
@@ -1226,6 +1230,34 @@ document.getElementById("weeks").onclick=e=>{
 document.getElementById("iList").onclick=e=>{const id=e.target.dataset.del; if(!id) return;
   state.indispos=state.indispos.filter(i=>i.id!==id); save(); renderIndispo(); renderPlanning();};
 document.getElementById("iFilter").onchange=renderIndispo;
+
+/* ---------- Import d'indisponibilités (ajout, sans remplacer) ---------- */
+// Fichier CSV : MAR;Du;Au;Motif;Commentaire (séparateur ; , ou tabulation ; dates AAAA-MM-JJ ou JJ/MM/AAAA ;
+// MAR = nom tel qu'affiché dans la page). Les lignes déjà présentes sont ignorées.
+function importIndispos(text){
+  const lines=text.replace(/^\ufeff/,"").split(/\r?\n/).filter(l=>l.trim());
+  const sep=[";","\t",","].find(c=>(lines[0]||"").includes(c))||";";
+  const motifs=[...document.getElementById("iMotif").options].map(o=>o.value);
+  const date=v=>{v=(v||"").trim().replace(/^"|"$/g,""); let m=v.match(/^(\d{4})-(\d{2})-(\d{2})$/); if(m) return v;
+    m=v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m?`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`:null};
+  const who=v=>{v=(v||"").trim().replace(/^"|"$/g,"").toUpperCase(); return [1,2,3,4,5,6,7,8].find(j=>nm(j).toUpperCase()===v)};
+  let add=0,dup=0; const err=[], first=[];
+  lines.forEach((l,i)=>{
+    const c=l.split(sep).map(x=>x.trim().replace(/^"|"$/g,""));
+    if(i===0&&/mar|médecin|nom/i.test(c[0])&&!date(c[1])) return;   // en-tête
+    const j=who(c[0]), from=date(c[1]), to=date(c[2])||from;
+    if(!j||!from||to<from){err.push(`ligne ${i+1}`);return}
+    const motif=motifs.find(m=>m.toLowerCase()===(c[3]||"").toLowerCase())||(c[3]?"Autre":"Congé");
+    if(state.indispos.some(x=>+x.who===j&&x.from===from&&x.to===to&&x.motif===motif)){dup++;return}
+    state.indispos.push({id:Date.now().toString(36)+"i"+i,who:j,from,to,motif,note:c[4]||""}); add++;
+    if(firstReaHits(j,from,to).length) first.push(`${nm(j)} (${fmt.format(parse(from))})`);
+  });
+  save(); renderIndispo(); renderPlanning();
+  return `${add} indisponibilité${add>1?"s":""} ajoutée${add>1?"s":""}`+(dup?`, ${dup} déjà présente${dup>1?"s":""}`:"")+(err.length?`, ${err.length} ligne${err.length>1?"s":""} ignorée${err.length>1?"s":""} (MAR inconnu ou date invalide : ${err.join(", ")})`:"")+"."+
+    (first.length?` En 1re semaine de réa : ${first.join(", ")} ; voir les propositions d'échange dans le planning, puis « Régénérer le planning ».`:"");
+}
+document.getElementById("iImport").onchange=e=>{const f=e.target.files[0]; if(!f) return; const r=new FileReader();
+  r.onload=()=>{document.getElementById("iImpMsg").textContent=importIndispos(r.result)}; r.readAsText(f,"utf-8"); e.target.value=""};
 
 /* ---------- Jours off hebdomadaires proposés (temps partiel 80 %) ---------- */
 // Pour chaque semaine, on teste chaque jour où le MAR est en endoscopie ou en 2e semaine de réa (sans consultation
