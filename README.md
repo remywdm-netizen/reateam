@@ -4,6 +4,8 @@ Application web (un seul fichier `index.html`, sans serveur) pour le roulement d
 
 ## Règles intégrées
 
+- **À partir du lundi 5 avril 2027** (`REA_ONLY_FROM`), seule la rotation de la réa est planifiée : relais, 1re et 2e semaines, renfort en réa, échanges et absences en 1re semaine. Les MAR hors réa ne sont plus affectés : plus d'endoscopie, de consultations ni de bloc, ni les alertes et propositions correspondantes. Les règles ci-dessous sur l'endoscopie et les consultations ne valent que jusqu'au 4 avril 2027.
+
 - Cycle de 10 semaines (cycles A et B), démarrant le lundi 4 janvier 2027 (semaine 1, cycle A). La date reste modifiable dans Paramètres.
 - Réa : 3 postes = 2 MAR du roulement + 1 MAR extérieur fixe. Endoscopie : 3 MAR du roulement.
 - Chaque MAR du roulement fait 2 semaines de réa (relais d'un MAR par semaine) et 3 semaines d'endoscopie. Les 2 semaines de réa n'ont pas à se suivre quand un échange l'impose.
