@@ -203,7 +203,7 @@ header{position:relative}
   <div class="legend" id="legend"></div>
   <p class="note" id="planHint" style="margin:-6px 0 12px">Planning par MAR : cliquez sur la case d'un MAR pour lui ajouter une récupération ce jour-là, ou recliquez pour la retirer.</p>
   <p class="note" id="planMsg" role="status" style="margin:-6px 0 12px;color:var(--accent);font-weight:700"></p>
-  <details class="panel" id="balanceBox" style="padding:12px 16px"><summary style="cursor:pointer;font-weight:700">Équilibre de la réa sur 3 mois</summary><div class="scroll"><div id="balance"></div></div></details>
+  <details class="panel" id="balanceBox" style="padding:12px 16px"><summary style="cursor:pointer;font-weight:700">Équilibre sur l'année</summary><div class="scroll"><div id="balance"></div></div></details>
   <div id="weeks"></div>
 </section>
 
@@ -521,10 +521,22 @@ function firstReaHits(j,a,b){
 // Absence en 1re semaine de réa : propose d'échanger les 2 semaines de réa avec un MAR en endoscopie ces 2 semaines.
 // On préfère le MAR dont le planning d'endoscopie (que reprendrait l'absent) a le moins de consultations ou blocs
 // tombant sur les jours d'absence, puis celui qui a le moins d'absences lui-même.
-// Rééquilibrage sur 3 mois : après un échange "week" ou "swap" de X vers Y, X reprend une à une des semaines de réa
-// de Y (1 ou 2 selon l'échange), dans les 13 semaines, où X est en endoscopie, sans absence et sans bloc dû.
-// Les 2 semaines de réa n'ayant pas à se suivre, on retient la semaine qui enchaîne X le moins longtemps en réa.
-const QUARTER=13;
+// Rééquilibrage sur l'année : après un échange "week" ou "swap" de X vers Y, X reprend une 1re semaine de réa de Y,
+// dans les 52 semaines qui suivent, où X est en endoscopie, sans absence et sans bloc dû.
+// On évite de faire enchaîner 3 semaines de réa ou plus : on retient la semaine qui enchaîne X le moins longtemps.
+const QUARTER=52;
+const MAX_RUN=2;   // au-delà de 2 semaines de réa d'affilée : à éviter
+const reaAt=(j,m)=>rawRows(m).s[j][0]==="REA";
+// Nombre de semaines de réa d'affilée de j si on l'ajoute en réa les semaines mons (lundis consécutifs)
+function reaRun(j,mons){
+  let run=mons.length;
+  for(let t=addDays(mons[0],-7);reaAt(j,t);t=addDays(t,-7)) run++;
+  for(let t=addDays(mons[mons.length-1],7);reaAt(j,t);t=addDays(t,7)) run++;
+  return run;
+}
+// Semaines ISO d'une année et année ISO d'une date
+function yearWeeks(y){const a=[];for(let m=isoWeek1(y);m<isoWeek1(y+1);m=addDays(m,7)) a.push(m);return a}
+const isoYear=d=>addDays(mondayOf(d),3).getFullYear();
 const isFreeWeeks=list=>!state.reaSwaps.some(z=>touched(z).some(t=>list.includes(t)));
 const absDaysIn=(j,m)=>[0,1,2,3,4].filter(d=>indispoOn(j,iso(addDays(m,d)))).length;
 function proposeCompensation(sw){
@@ -536,10 +548,13 @@ function proposeCompensation(sw){
   for(let i=swapLen(sw);i<=QUARTER;i++){
     const m=addDays(parse(sw.monday),7*i), mi=iso(m), r=rawRows(m);
     if(!isFreeWeeks([mi])||r.first!==sw.b||r.s[sw.a][0]==="REA"||absDaysIn(sw.a,m)||owesBloc(sw.a,[mi])) continue;
-    let run=1; for(let t=addDays(m,-7);inRea(sw.a,t);t=addDays(t,-7)) run++; for(let t=addDays(m,7);inRea(sw.a,t);t=addDays(t,7)) run++;
-    opts.push({run,proposal:{monday:mi,a:sw.b,b:sw.a,comp:sw.id,kind:"week"}});
+    const run=reaRun(sw.a,[m]);
+    // une semaine qui ferait enchaîner 3 semaines de réa ou plus n'est jamais appliquée d'office par « Régénérer »
+    opts.push({run,proposal:{monday:mi,a:sw.b,b:sw.a,comp:sw.id,kind:"week",...(run>MAX_RUN?{longRun:run}:{})}});
   }
-  opts.sort((a,b)=>a.run-b.run||a.proposal.monday.localeCompare(b.proposal.monday));
+  // d'abord sans série de 3 semaines, puis dans la même année que l'échange, puis la plus courte et la plus proche
+  const yr=isoYear(parse(sw.monday));
+  opts.sort((a,b)=>(a.run>MAX_RUN)-(b.run>MAX_RUN)||(isoYear(parse(b.proposal.monday))===yr)-(isoYear(parse(a.proposal.monday))===yr)||a.run-b.run||a.proposal.monday.localeCompare(b.proposal.monday));
   return opts.length?{proposal:opts[0].proposal,run:opts[0].run,n:comps.length+1,total,comps}:{none:true,left:total-comps.length,comps};
 }
 // Absence de X en 1re semaine de réa (semaine W) :
@@ -553,7 +568,10 @@ function proposeReaSwap(monday,x,k){
   const mi=iso(monday), m1=addDays(monday,7), m2=addDays(monday,14);
   const z=baseWeek(cycleWeek(monday)).next;
   const relay=z!==x&&isFreeWeeks([mi,iso(m1),iso(m2)])&&!absDaysIn(z,monday)&&!absDaysIn(x,m1)&&!owesBloc(z,[mi])&&!owesBloc(x,[iso(m1),iso(m2)])?{monday:mi,a:x,b:z,kind:"relay"}:null;
-  return relay||proposeReaSwapTo(monday,x);
+  if(relay&&reaRun(z,[monday,m1])<=MAX_RUN) return relay;
+  const sw=proposeReaSwapTo(monday,x);
+  if(relay&&(!sw||sw.run>MAX_RUN)) return {...relay,run:reaRun(z,[monday,m1])};
+  return sw||relay;
 }
 function proposeReaSwapTo(monday,x){
   const mi=iso(monday), m1=addDays(monday,7);
@@ -564,9 +582,9 @@ function proposeReaSwapTo(monday,x){
   const busy=r=>r==="CONS"||r==="CONSX"||r==="BLOC";
   // candidats : MAR du roulement en endoscopie la (ou les) semaine(s) concernée(s)
   const cand=[1,2,3,4,5].filter(y=>y!==x&&s1[y][0]!=="REA"&&(one||s2[y][0]!=="REA")&&!absDaysIn(y,monday)&&!owesBloc(y,weeks))
-    .map(y=>({y,conf:days.filter(([dt,s,d])=>indispoOn(x,iso(dt))&&busy(s[y][d])).length,abs:days.filter(([dt])=>indispoOn(y,iso(dt))).length}))
-    .sort((a,b)=>a.conf-b.conf||a.abs-b.abs||a.y-b.y);
-  return cand.length?{monday:mi,a:x,b:cand[0].y,kind:one?"week":"swap"}:null;
+    .map(y=>({y,run:reaRun(y,one?[monday]:[monday,m1]),conf:days.filter(([dt,s,d])=>indispoOn(x,iso(dt))&&busy(s[y][d])).length,abs:days.filter(([dt])=>indispoOn(y,iso(dt))).length}))
+    .sort((a,b)=>(a.run>MAX_RUN)-(b.run>MAX_RUN)||a.conf-b.conf||a.abs-b.abs||a.run-b.run||a.y-b.y);
+  return cand.length?{monday:mi,a:x,b:cand[0].y,kind:one?"week":"swap",run:cand[0].run}:null;
 }
 
 /* ---------- Remplacement des consultations impossibles ---------- */
@@ -746,22 +764,22 @@ function buildWeek(monday){
     const motifs=[...new Set(absDays.map(D=>D.cell[first].ind.motif))].join(", "), jours=absDays.map(D=>DAYS[D.date.getDay()-1].toLowerCase()).join(", ");
     let t=`${nm(first)} est en 1re semaine de réa, où aucune absence n'est possible (${motifs} : ${jours}).`;
     const alt=proposeReaSwap(monday,first,k);
-    if(alt&&alt.kind==="relay") alerts.unshift(["warn",t+` Proposition : échanger la semaine 1 de ${nm(alt.a)} avec la semaine 2 de ${nm(alt.b)}. ${nm(alt.b)} entre en réa dès cette semaine (semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))}), et ${nm(alt.a)} entre la semaine suivante (semaines du ${fmt.format(addDays(monday,7))} et du ${fmt.format(addDays(monday,14))}). Chacun garde 2 semaines de réa.`,{reaSwap:alt}]);
-    else if(alt&&alt.kind==="week") alerts.unshift(["warn",t+` Proposition : ${nm(alt.b)} fait la réa la semaine du ${fmt.format(monday)} à la place de ${nm(alt.a)}, qui reprend son planning d'endoscopie cette semaine-là et garde sa semaine de réa du ${fmt.format(addDays(monday,7))}. Une semaine de rééquilibrage sera proposée ensuite.`,{reaSwap:alt}]);
-    else if(alt) alerts.unshift(["warn",t+` Proposition : échanger ${nm(alt.a)} et ${nm(alt.b)} pour les semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))} : ${nm(alt.b)} fait les deux semaines de réa et ${nm(alt.a)} reprend son planning d'endoscopie. Un rééquilibrage sera proposé ensuite.`,{reaSwap:alt}]);
+    if(alt&&alt.kind==="relay") alerts.unshift(["warn",t+` Proposition : échanger la semaine 1 de ${nm(alt.a)} avec la semaine 2 de ${nm(alt.b)}. ${nm(alt.b)} entre en réa dès cette semaine (semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))}), et ${nm(alt.a)} entre la semaine suivante (semaines du ${fmt.format(addDays(monday,7))} et du ${fmt.format(addDays(monday,14))}). Chacun garde 2 semaines de réa.`+(alt.run>MAX_RUN?` ${nm(alt.b)} enchaîne alors ${alt.run} semaines de réa (à éviter).`:""),{reaSwap:alt}]);
+    else if(alt&&alt.kind==="week") alerts.unshift(["warn",t+` Proposition : ${nm(alt.b)} fait la réa la semaine du ${fmt.format(monday)} à la place de ${nm(alt.a)}, qui reprend son planning d'endoscopie cette semaine-là et garde sa semaine de réa du ${fmt.format(addDays(monday,7))}.`+(alt.run>MAX_RUN?` ${nm(alt.b)} enchaîne alors ${alt.run} semaines de réa (à éviter).`:"")+` Une semaine de rééquilibrage sera proposée ensuite.`,{reaSwap:alt}]);
+    else if(alt) alerts.unshift(["warn",t+` Proposition : échanger ${nm(alt.a)} et ${nm(alt.b)} pour les semaines du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))} : ${nm(alt.b)} fait les deux semaines de réa et ${nm(alt.a)} reprend son planning d'endoscopie.`+(alt.run>MAX_RUN?` ${nm(alt.b)} enchaîne alors ${alt.run} semaines de réa (à éviter).`:"")+` Un rééquilibrage sera proposé ensuite.`,{reaSwap:alt}]);
     else alerts.unshift(["crit",t+(isFreeWeeks([iso(monday)])?` Pas d'échange possible (aucun MAR en endoscopie n'est disponible toute cette semaine). Déplacez cette absence.`:` Pas d'échange possible : un autre échange de réa porte déjà sur cette semaine. Annulez-le ou déplacez cette absence.`)]);
   }
   if(applied){
     const c=proposeCompensation(applied);
     let t=applied.kind==="relay"?`Relais de réa inversé : ${nm(applied.b)} fait les semaines de réa du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))}, ${nm(applied.a)} celles du ${fmt.format(addDays(monday,7))} et du ${fmt.format(addDays(monday,14))}.`
-      :applied.comp?`Rééquilibrage sur 3 mois : ${nm(applied.b)} fait la semaine de réa du ${fmt.format(monday)} à la place de ${nm(applied.a)}.`
+      :applied.comp?`Rééquilibrage sur l'année : ${nm(applied.b)} fait la semaine de réa du ${fmt.format(monday)} à la place de ${nm(applied.a)}.`
       :applied.kind==="week"?`Semaine de réa échangée : ${nm(applied.b)} fait la réa la semaine du ${fmt.format(monday)} à la place de ${nm(applied.a)}, qui reprend son planning d'endoscopie.`
       :`Période de réa échangée : ${nm(applied.b)} fait les semaines de réa du ${fmt.format(monday)} et du ${fmt.format(addDays(monday,7))} à la place de ${nm(applied.a)}, qui reprend son planning d'endoscopie.`;
     const wk=list=>list.map(z=>fmt.format(parse(z.monday))).join(" et du ");
     if(c&&c.comps&&c.comps.length) t+=` ${c.done?"Rééquilibré":"Rééquilibrage en cours"} : semaine${c.comps.length>1?"s":""} du ${wk(c.comps)}`.replace(/\.?$/,".");
     alerts.unshift(["info",t,{unReaSwap:applied.id}]);
-    if(c&&c.proposal) alerts.splice(1,0,["warn",`Rééquilibrage sur 3 mois${c.total>1?` (${c.n}/${c.total})`:""} : ${nm(applied.a)} fait la 1re semaine de réa du ${fmt.format(parse(c.proposal.monday))} à la place de ${nm(applied.b)}, qui reprend son planning d'endoscopie.`+(c.run>2?` ${nm(applied.a)} enchaîne alors ${c.run} semaines de réa.`:""),{reaSwap:c.proposal}]);
-    if(c&&c.none) alerts.splice(1,0,["warn",`Pas de rééquilibrage possible dans les 3 mois : aucune 1re semaine de réa de ${nm(applied.b)} où ${nm(applied.a)} est disponible. ${nm(applied.b)} aura ${c.left} 1re${c.left>1?"s":""} semaine${c.left>1?"s":""} de réa de plus que ${nm(applied.a)}.`]);
+    if(c&&c.proposal) alerts.splice(1,0,["warn",`Rééquilibrage sur l'année${c.total>1?` (${c.n}/${c.total})`:""} : ${nm(applied.a)} fait la 1re semaine de réa du ${fmt.format(parse(c.proposal.monday))} à la place de ${nm(applied.b)}, qui reprend son planning d'endoscopie.`+(c.run>MAX_RUN?` ${nm(applied.a)} enchaîne alors ${c.run} semaines de réa (à éviter, aucune autre semaine possible).`:""),{reaSwap:c.proposal}]);
+    if(c&&c.none) alerts.splice(1,0,["warn",`Pas de rééquilibrage possible dans l'année : aucune 1re semaine de réa de ${nm(applied.b)} où ${nm(applied.a)} est disponible. ${nm(applied.b)} aura ${c.left} 1re${c.left>1?"s":""} semaine${c.left>1?"s":""} de réa de plus que ${nm(applied.a)}.`]);
   }
   return {monday,w,k,cyc,days,alerts,reaOnly};
 }
@@ -811,30 +829,30 @@ function recapTable(W){
   });
   return h+`</tbody></table></div>`;
 }
-// Semaines de réa par MAR sur les 13 semaines affichées, comparées au cycle sans échange
-// Équilibre sur les 13 semaines affichées : 1res semaines de réa et consultations lib de chaque MAR,
-// comparées au cycle sans échange ni absence (indépendant du temps de travail)
-function balanceCounts(from){
-  const f={1:0,2:0,3:0,4:0,5:0}, fRef={...f}, l={...f}, lRef={...f}, weeks=[];
-  for(let i=0;i<QUARTER;i++){
-    const m=addDays(from,7*i), W=buildWeek(m), b=baseWeek(cycleWeek(m)); weeks.push(W);
+// Équilibre sur l'année (semaines ISO) : 1res semaines de réa et consultations lib de chaque MAR,
+// comparées au cycle sans échange ni absence (indépendant du temps de travail) ; runs = 3 semaines de réa d'affilée ou plus
+function balanceCounts(y){
+  const f={1:0,2:0,3:0,4:0,5:0}, fRef={...f}, l={...f}, lRef={...f}, weeks=[], runs={...f};
+  for(const m of yearWeeks(y)){
+    const W=buildWeek(m), b=baseWeek(cycleWeek(m)); weeks.push(W);
     f[rawRows(m).first]++; fRef[b.first]++;
     if(!W.reaOnly) W.days.forEach((D,d)=>{for(let j=1;j<=5;j++){ if(isLib(D.cell[j].role,d)) l[j]++; if(isLib(b.s[j][d],d)) lRef[j]++ }});
   }
-  return {f,fRef,l,lRef,weeks};
+  for(let j=1;j<=5;j++){let r=0;weeks.forEach(W=>{if(reaAt(j,W.monday)){r++; if(r===MAX_RUN+1) runs[j]++} else r=0})}
+  return {f,fRef,l,lRef,weeks,runs};
 }
 // Rééquilibrage des consultations lib : un MAR en excès cède une consultation lib (et le bloc qui suit) à un MAR
 // en déficit, en endoscopie ce jour-là et libre pour le bloc (sinon sa consultation simple passe à un extérieur)
 // Si aucun transfert direct n'existe (avec l'ordre du relais, deux MAR ne sont pas toujours en endoscopie les mêmes
 // jours), on passe par un MAR intermédiaire : 1re étape vers lui, s'il peut ensuite la céder au MAR en déficit.
-function libBalanceProposal(from,depth=1){
-  const {l,lRef,weeks}=balanceCounts(from), plus=[1,2,3,4,5].filter(j=>l[j]>lRef[j]), minus=[1,2,3,4,5].filter(j=>l[j]<lRef[j]);
+function libBalanceProposal(y,depth=1){
+  const {l,lRef,weeks}=balanceCounts(y), plus=[1,2,3,4,5].filter(j=>l[j]>lRef[j]), minus=[1,2,3,4,5].filter(j=>l[j]<lRef[j]);
   if(!plus.length||!minus.length) return null;
   const direct=libTransfer(weeks,plus,minus,null); if(direct) return direct;
   if(!depth) return null;
   const mid=[1,2,3,4,5].filter(j=>l[j]===lRef[j]);
   let first=null;
-  libTransfer(weeks,plus,mid,pr=>{state.swaps.push(pr.swap); const ok=libBalanceProposal(from,0); state.swaps.pop();
+  libTransfer(weeks,plus,mid,pr=>{state.swaps.push(pr.swap); const ok=libBalanceProposal(y,0); state.swaps.pop();
     if(ok){first={swap:pr.swap,text:pr.text.replace(/\.$/,"")+` ; puis ${ok.text.replace(/^Proposition : /,"").replace(/^./,c=>c.toLowerCase())}`}; return true} return false});
   return first;
 }
@@ -857,13 +875,14 @@ function libTransfer(weeks,plus,minus,accept){
   return null;
 }
 function renderBalance(from){
-  const {f,fRef,l,lRef}=balanceCounts(from);
-  const end=addDays(from,7*QUARTER-3), off=[1,2,3,4,5].filter(j=>f[j]!==fRef[j]||l[j]!==lRef[j]), sg=e=>`${e>0?"+":""}${e}`;
-  document.querySelector("#balanceBox summary").innerHTML=`Équilibre sur 3 mois (1res semaines de réa, consultations lib) `+(off.length?`<span class="status todo">à rééquilibrer : ${off.map(nm).join(", ")}</span>`:`<span class="status ok">équilibré</span>`);
-  document.getElementById("balance").innerHTML=`<p class="note" style="margin:8px 0">Du ${fmtLong.format(from)} au ${fmtLong.format(end)} (13 semaines). Seules les 1res semaines de réa et les consultations lib sont décomptées, et comparées au cycle sans échange, indépendamment du temps de travail : chaque écart doit être nul.</p>`+
-    `<table class="list"><thead><tr><th>MAR</th><th class="num">1res semaines de réa</th><th class="num">Selon le cycle</th><th class="num">Écart</th><th class="num">Consultations lib</th><th class="num">Selon le cycle</th><th class="num">Écart</th></tr></thead><tbody>`+
-    [1,2,3,4,5].map(j=>{const e=f[j]-fRef[j], el=l[j]-lRef[j];return `<tr><td><strong>${esc(nm(j))}</strong></td><td class="num">${f[j]}</td><td class="num">${fRef[j]}</td><td class="num${e?" over":""}">${sg(e)}</td><td class="num">${l[j]}</td><td class="num">${lRef[j]}</td><td class="num${el?" over":""}">${sg(el)}</td></tr>`}).join("")+`</tbody></table>`+
-    (()=>{const pr=libBalanceProposal(from); return pr?`<p class="note" style="margin:10px 0 0;color:var(--warn)">Consultations lib : ${esc(pr.text)} <button class="btn small" data-swap='${esc(JSON.stringify(pr.swap))}'>Appliquer</button></p>`:""})();
+  const y=isoYear(from), {f,fRef,l,lRef,runs}=balanceCounts(y);
+  const off=[1,2,3,4,5].filter(j=>f[j]!==fRef[j]||l[j]!==lRef[j]), sg=e=>`${e>0?"+":""}${e}`, nr=[1,2,3,4,5].filter(j=>runs[j]);
+  document.querySelector("#balanceBox summary").innerHTML=`Équilibre sur l'année ${y} (1res semaines de réa, consultations lib) `+(off.length?`<span class="status todo">à rééquilibrer : ${off.map(nm).join(", ")}</span>`:`<span class="status ok">équilibré</span>`)+
+    (nr.length?` <span class="status todo">3 semaines de réa d'affilée : ${nr.map(nm).join(", ")}</span>`:"");
+  document.getElementById("balance").innerHTML=`<p class="note" style="margin:8px 0">Année ${y} (semaines ${isoWeek(isoWeek1(y))} à ${isoWeek(addDays(isoWeek1(y+1),-7))}, du ${fmtLong.format(isoWeek1(y))} au ${fmtLong.format(addDays(isoWeek1(y+1),-3))}). Seules les 1res semaines de réa et les consultations lib sont décomptées, et comparées au cycle sans échange, indépendamment du temps de travail : chaque écart doit être nul. Les séries de 3 semaines de réa d'affilée ou plus sont à éviter.</p>`+
+    `<table class="list"><thead><tr><th>MAR</th><th class="num">1res semaines de réa</th><th class="num">Selon le cycle</th><th class="num">Écart</th><th class="num">Consultations lib</th><th class="num">Selon le cycle</th><th class="num">Écart</th><th class="num">Séries de 3 sem. de réa ou +</th></tr></thead><tbody>`+
+    [1,2,3,4,5].map(j=>{const e=f[j]-fRef[j], el=l[j]-lRef[j];return `<tr><td><strong>${esc(nm(j))}</strong></td><td class="num">${f[j]}</td><td class="num">${fRef[j]}</td><td class="num${e?" over":""}">${sg(e)}</td><td class="num">${l[j]}</td><td class="num">${lRef[j]}</td><td class="num${el?" over":""}">${sg(el)}</td><td class="num${runs[j]?" over":""}">${runs[j]||""}</td></tr>`}).join("")+`</tbody></table>`+
+    (()=>{const pr=libBalanceProposal(y); return pr?`<p class="note" style="margin:10px 0 0;color:var(--warn)">Consultations lib : ${esc(pr.text)} <button class="btn small" data-swap='${esc(JSON.stringify(pr.swap))}'>Appliquer</button></p>`:""})();
 }
 let lastWeeks=[];
 function renderPlanning(){
@@ -955,7 +974,13 @@ function renderAnnual(){
   }
   h+=`<tr><th scope="row">REA 1</th>`+weeks.map(W=>`<td data-w="${iso(W.monday)}" title="REA 1 : ${esc(nm(rawRows(W.monday).first))}">${esc(nm(rawRows(W.monday).first))}</td>`).join("")+`</tr>`;
   h+=`<tr><th scope="row">Alertes critiques</th>`+weeks.map(W=>{const n=W.alerts.filter(a=>a[0]==="crit").length;return `<td class="${n?"al":""}" data-w="${iso(W.monday)}" title="${n} alerte(s) critique(s)">${n||""}</td>`}).join("")+`</tr>`;
-  document.getElementById("anOut").innerHTML=h+`</tbody></table>`;
+  // bilan de l'année par MAR
+  const {f,fRef,l,lRef,runs}=balanceCounts(y), sg=e=>e?`${e>0?"+":""}${e}`:"0";
+  const bil=[1,2,3,4,5].map(j=>{
+    const reaW=weeks.filter(W=>reaAt(j,W.monday)).length, absD=weeks.reduce((n,W)=>n+W.days.filter(D=>D.cell[j].ind).length,0);
+    return `<tr><td><strong>${esc(nm(j))}</strong> <span class="chip">${QUOT[j]}</span></td><td class="num">${f[j]}</td><td class="num${f[j]!==fRef[j]?" over":""}">${sg(f[j]-fRef[j])}</td><td class="num">${reaW}</td><td class="num">${l[j]}</td><td class="num${l[j]!==lRef[j]?" over":""}">${sg(l[j]-lRef[j])}</td><td class="num${runs[j]?" over":""}">${runs[j]||""}</td><td class="num">${absD}</td></tr>`}).join("");
+  document.getElementById("anOut").innerHTML=h+`</tbody></table>`+
+    `<h3 style="margin:18px 0 8px">Bilan de l'année ${y}</h3><table class="list" style="width:auto"><thead><tr><th>MAR</th><th class="num">1res sem. de réa</th><th class="num">Écart / cycle</th><th class="num">Semaines de réa</th><th class="num">Consult. lib</th><th class="num">Écart / cycle</th><th class="num">Séries de 3 sem. de réa ou +</th><th class="num">Jours d'absence</th></tr></thead><tbody>${bil}</tbody></table>`;
   document.getElementById("anLegend").innerHTML=`<span class="t-REA" style="background:#e8a19a;color:#5a1a14">R1 : 1re semaine de réa</span><span class="t-REA">R2 : 2e semaine de réa</span><span class="t-ENDO">E : endoscopie</span><span class="t-INDISPO">C congé · F formation · M maladie · R récup. · G garde · T temps partiel · A autre (semaine entière)</span><span style="color:var(--crit)">ⁿ : jours d'absence dans la semaine</span>`;
 }
 document.getElementById("anYear").onchange=renderAnnual;
@@ -1196,7 +1221,7 @@ document.getElementById("csvBtn").onclick=()=>{
 };
 /* ---------- Régénération après mise à jour des indisponibilités ---------- */
 // 1) retire les remplacements et échanges qui ne correspondent plus à une absence ;
-// 2) applique une à une, dans l'ordre chronologique, toutes les propositions de la période affichée (+ 3 mois).
+// 2) applique une à une, dans l'ordre chronologique, toutes les propositions sur au moins un an.
 function staleSwaps(){
   // devenus inutiles (absence supprimée) ou inapplicables (roulement modifié, remplaçant indisponible…)
   const consult=state.swaps.filter(x=>!swapApplies(x)||(!x.bal&&!indispoOn(x.from,x.date)&&!(x.blocDate&&indispoOn(x.from,x.blocDate))));
@@ -1219,14 +1244,14 @@ document.getElementById("regenBtn").onclick=()=>{
   const from=mondayOf(parse(document.getElementById("viewFrom").value||state.start)), n=Math.max(52,+document.getElementById("viewWeeks").value+QUARTER);   // au moins un an
   for(let guard=0;guard<200;guard++){
     let act=null;
-    for(let i=0;i<n&&!act;i++){const W=buildWeek(addDays(from,7*i)); act=W.alerts.map(a=>a[2]).find(x=>x&&(x.reaSwap||(x.swap&&!x.swap.twoLib)))}
+    for(let i=0;i<n&&!act;i++){const W=buildWeek(addDays(from,7*i)); act=W.alerts.map(a=>a[2]).find(x=>x&&((x.reaSwap&&!x.reaSwap.longRun)||(x.swap&&!x.swap.twoLib)))}
     if(!act) break;
     if(act.reaSwap) state.reaSwaps.push({id:Date.now().toString(36)+guard,...act.reaSwap});
     else state.swaps.push({id:Date.now().toString(36)+guard,...act.swap});
     added++;
   }
-  // puis équilibre des consultations lib sur les 3 mois affichés
-  for(let guard=0;guard<30;guard++){const pr=libBalanceProposal(from); if(!pr) break; state.swaps.push({...pr.swap,id:Date.now().toString(36)+"l"+guard}); added++}
+  // puis équilibre des consultations lib sur l'année affichée
+  for(let guard=0;guard<30;guard++){const pr=libBalanceProposal(isoYear(from)); if(!pr) break; state.swaps.push({...pr.swap,id:Date.now().toString(36)+"l"+guard}); added++}
   added=Math.max(0,added-rmBal); save(); renderPlanning();
   const crit=lastWeeks.reduce((k,W)=>k+W.alerts.filter(a=>a[0]==="crit").length,0);
   document.getElementById("planMsg").textContent=`Planning régénéré : ${added} modification${added>1?"s":""} appliquée${added>1?"s":""}, ${removed} retirée${removed>1?"s":""}.`+
@@ -1470,8 +1495,8 @@ function renderRules(){
       `Jamais un jour de consultation ou de bloc imposé.`]],
     ["Absences",[
       `Aucune absence pendant la 1re semaine de réa. Temps partiel, récupération, formation et autre y sont refusés.`,
-      `Congé, garde ou maladie en 1re semaine de réa : le planning propose d'abord d'échanger la semaine 1 de l'absent avec la semaine 2 du MAR suivant (inversion du relais, sans déséquilibre). Sinon, un MAR en endoscopie fait la seule semaine 1 de l'absent (qui garde sa semaine 2), ou les 2 semaines si l'absence continue. Un rééquilibrage est ensuite proposé semaine par semaine dans les 3 mois.`,
-      `Équilibre vérifié sur 3 mois (13 semaines) en décomptant uniquement les 1res semaines de réa et les consultations lib de chaque MAR, indépendamment du temps de travail. Après un échange, le rééquilibrage rend une 1re semaine de réa.`,
+      `Congé, garde ou maladie en 1re semaine de réa : le planning propose d'abord d'échanger la semaine 1 de l'absent avec la semaine 2 du MAR suivant (inversion du relais, sans déséquilibre). Sinon, un MAR en endoscopie fait la seule semaine 1 de l'absent (qui garde sa semaine 2), ou les 2 semaines si l'absence continue. Un rééquilibrage est ensuite proposé dans l'année.`,
+      `Équilibre vérifié sur l'année (semaines ISO) en décomptant uniquement les 1res semaines de réa et les consultations lib de chaque MAR, indépendamment du temps de travail. Après un échange, le rééquilibrage rend une 1re semaine de réa dans l'année. On évite qu'un MAR enchaîne 3 semaines de réa ou plus.`,
       `Consultation lib impossible : un MAR du roulement en endoscopie ce jour-là et libre pour le bloc suivant est proposé. À défaut, deux possibilités (MAR en 2e semaine de réa ou AFR) sont simulées, et celle qui a le moins de conséquences est recommandée. Les autres consultations sont à confier à un extérieur.`,
       `Une récupération s'ajoute ou se retire d'un clic sur la case du MAR dans Planning par MAR.`,
       `Bouton « Régénérer le planning » : après une mise à jour des indisponibilités, il retire les échanges devenus inutiles et applique toutes les propositions.`]],
