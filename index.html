@@ -118,6 +118,18 @@ table.half td[data-j]:hover{background:#f0f6f6}
 .trame td.edit{font-style:italic;color:#7a2a22}
 .trame-wk{margin-bottom:22px}
 .trame-wk h3{margin:0 0 6px}
+.annual{border-collapse:collapse;font-size:.68rem;min-width:0;width:auto}
+.annual th,.annual td{border:1px solid var(--line);padding:2px 1px;min-width:24px;text-align:center}
+.annual tbody th{text-align:left;padding:2px 6px;white-space:nowrap;font-size:.75rem}
+.annual td{cursor:pointer;height:24px}
+.annual td.r1{background:#e8a19a;color:#5a1a14;font-weight:700}
+.annual td.r2{background:var(--rea);color:var(--rea-ink)}
+.annual td.e{background:var(--endo);color:#2d5a33}
+.annual td.abs{background:var(--indispo);color:#fff;font-weight:700}
+.annual td sup{color:var(--crit);font-weight:700;font-size:.62rem}
+.annual td.al{color:var(--crit);font-weight:700;background:#fff8f6}
+.annual tr.mo th{background:#f6f9f9;font-weight:700}
+.annual td.now{outline:2px solid #f2b705;outline-offset:-2px}
 .note{font-size:.85rem;color:var(--muted);margin:8px 0 0}
 #gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
 #gate form{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:28px 24px;width:100%;max-width:360px;text-align:center}
@@ -160,6 +172,7 @@ header{position:relative}
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning par MAR</button>
     <button role="tab" data-tab="poste" aria-selected="false">Planning par poste</button>
+    <button role="tab" data-tab="annee" aria-selected="false">Vue annuelle</button>
     <button role="tab" data-tab="prat" aria-selected="false">Par praticien</button>
     <button role="tab" data-tab="cons" aria-selected="false">Consultations</button>
     <button role="tab" data-tab="trame" aria-selected="false">Trame service</button>
@@ -183,6 +196,7 @@ header{position:relative}
     </label>
     <button class="btn" id="regenBtn" style="margin-top:18px" title="Retire les échanges devenus inutiles et applique toutes les propositions">Régénérer le planning</button>
     <button class="btn ghost" id="csvBtn" style="margin-top:18px">Exporter en CSV</button>
+    <button class="btn ghost" id="csvReaBtn" style="margin-top:18px" title="Une ligne par semaine : MAR en 1re et 2e semaine de réa">Exporter la réa 1 (CSV)</button>
     <button class="btn ghost" id="printBtn" style="margin-top:18px">Imprimer</button>
     <div class="summary" id="summary"></div>
   </div>
@@ -191,6 +205,17 @@ header{position:relative}
   <p class="note" id="planMsg" role="status" style="margin:-6px 0 12px;color:var(--accent);font-weight:700"></p>
   <details class="panel" id="balanceBox" style="padding:12px 16px"><summary style="cursor:pointer;font-weight:700">Équilibre de la réa sur 3 mois</summary><div class="scroll"><div id="balance"></div></div></details>
   <div id="weeks"></div>
+</section>
+
+<!-- VUE ANNUELLE -->
+<section id="tab-annee" hidden>
+  <div class="toolbar">
+    <label>Année<select id="anYear"></select></label>
+    <button class="btn ghost" id="anPrint" style="margin-top:18px">Imprimer</button>
+  </div>
+  <div class="legend" id="anLegend"></div>
+  <div class="scroll"><div id="anOut"></div></div>
+  <p class="note">Une colonne par semaine (numéro de semaine ISO). R1 / R2 : 1re / 2e semaine de réa ; E : endoscopie ; case vide : hors réa (à partir du 5 avril 2027). Une absence d'une semaine entière remplace la case par son motif ; une absence partielle est signalée par le nombre de jours. Cliquez sur une semaine pour l'ouvrir dans le planning.</p>
 </section>
 
 <!-- RÉCAPITULATIF PAR PRATICIEN -->
@@ -894,10 +919,50 @@ function renderPlanning(){
   }
   document.getElementById("weeks").innerHTML=html||`<p class="empty">Aucune alerte sur la période affichée.</p>`;
   if(!document.getElementById("tab-prat").hidden) renderPrat();
+  if(!document.getElementById("tab-annee").hidden) renderAnnual();
   if(!document.getElementById("tab-cons").hidden) renderCons();
   if(!document.getElementById("tab-trame").hidden) renderTrame();
   document.getElementById("summary").innerHTML=nAl?`${nAl} alerte${nAl>1?"s":""}, dont <strong>${nCrit} critique${nCrit>1?"s":""}</strong>`:"Aucune alerte sur la période";
 }
+
+/* ---------- Vue annuelle ---------- */
+// Une colonne par semaine ISO de l'année, une ligne par MAR du roulement (R1, R2, E, absences), puis REA 1 et alertes
+function isoWeek1(y){return mondayOf(new Date(y,0,4))}
+function renderAnnual(){
+  const sel=document.getElementById("anYear"), cy=new Date().getFullYear(), ys=[...new Set([cy,cy+1,parse(state.start).getFullYear()])].sort();
+  if(!sel.options.length){sel.innerHTML=ys.map(y=>`<option>${y}</option>`).join(""); sel.value=Math.max(cy,parse(state.start).getFullYear())}
+  const y=+sel.value, end=isoWeek1(y+1), weeks=[];
+  for(let m=isoWeek1(y);m<end;m=addDays(m,7)) weeks.push(buildWeek(m));
+  const MOT={"Congé":"C","Formation":"F","Maladie":"M","Récupération":"R","Garde":"G","Temps partiel":"T","Autre":"A"};
+  // en-tête : mois, puis numéros de semaine
+  let mo="", cur=-1, span=0;
+  const months=weeks.map(W=>addDays(W.monday,3).getMonth());
+  months.forEach((m,i)=>{ if(m!==cur){ if(span) mo+=`<th colspan="${span}">${new Intl.DateTimeFormat("fr-FR",{month:"short"}).format(new Date(y,cur,1))}</th>`; cur=m; span=1 } else span++ });
+  mo+=`<th colspan="${span}">${new Intl.DateTimeFormat("fr-FR",{month:"short"}).format(new Date(y,cur,1))}</th>`;
+  const today=iso(mondayOf(new Date()));
+  let h=`<table class="annual"><thead><tr class="mo"><th></th>${mo}</tr><tr><th>Semaine</th>`+weeks.map(W=>`<th title="${fmtLong.format(W.monday)}">${isoWeek(W.monday)}</th>`).join("")+`</tr></thead><tbody>`;
+  for(const j of [1,2,3,4,5]){
+    h+=`<tr><th scope="row">${esc(nm(j))} <span class="chip">${QUOT[j]}</span></th>`;
+    weeks.forEach(W=>{
+      const r=rawRows(W.monday), rea=r.s[j][0]==="REA", st=rea?(r.first===j?"R1":"R2"):(W.reaOnly?"":"E");
+      const ab=W.days.filter(D=>D.cell[j].ind), mot=ab.length?ab[0].cell[j].ind.motif:"";
+      const full=ab.length===5, cls=full?"abs":st==="R1"?"r1":st==="R2"?"r2":st==="E"?"e":"";
+      const txt=full?(MOT[mot]||"A"):st, sup=!full&&ab.length?`<sup>${ab.length}</sup>`:"";
+      const tip=`${nm(j)} · semaine ${isoWeek(W.monday)} (${fmtLong.format(W.monday)}) : ${st==="R1"?"1re semaine de réa":st==="R2"?"2e semaine de réa":st==="E"?"endoscopie":"hors réa"}`+(ab.length?` · absent ${ab.length} j (${[...new Set(ab.map(D=>D.cell[j].ind.motif))].join(", ")})`:"");
+      h+=`<td class="${cls}${iso(W.monday)===today?" now":""}" data-w="${iso(W.monday)}" title="${esc(tip)}">${txt}${sup}</td>`;
+    });
+    h+=`</tr>`;
+  }
+  h+=`<tr><th scope="row">REA 1</th>`+weeks.map(W=>`<td data-w="${iso(W.monday)}" title="REA 1 : ${esc(nm(rawRows(W.monday).first))}">${esc(nm(rawRows(W.monday).first))}</td>`).join("")+`</tr>`;
+  h+=`<tr><th scope="row">Alertes critiques</th>`+weeks.map(W=>{const n=W.alerts.filter(a=>a[0]==="crit").length;return `<td class="${n?"al":""}" data-w="${iso(W.monday)}" title="${n} alerte(s) critique(s)">${n||""}</td>`}).join("")+`</tr>`;
+  document.getElementById("anOut").innerHTML=h+`</tbody></table>`;
+  document.getElementById("anLegend").innerHTML=`<span class="t-REA" style="background:#e8a19a;color:#5a1a14">R1 : 1re semaine de réa</span><span class="t-REA">R2 : 2e semaine de réa</span><span class="t-ENDO">E : endoscopie</span><span class="t-INDISPO">C congé · F formation · M maladie · R récup. · G garde · T temps partiel · A autre (semaine entière)</span><span style="color:var(--crit)">ⁿ : jours d'absence dans la semaine</span>`;
+}
+document.getElementById("anYear").onchange=renderAnnual;
+document.getElementById("anPrint").onclick=()=>window.print();
+// clic sur une semaine : ouverture dans le planning par MAR
+document.getElementById("anOut").onclick=e=>{const td=e.target.closest("[data-w]"); if(!td) return;
+  document.getElementById("viewFrom").value=td.dataset.w; document.querySelector('nav button[data-tab="planning"]').click()};
 
 /* ---------- Récapitulatif par praticien ---------- */
 // Planning d'un MAR semaine par semaine (matin / après-midi) et totaux de la période, en demi-journées
@@ -1103,6 +1168,25 @@ document.getElementById("trXlsx").onclick=async()=>{
 };
 
 /* ---------- CSV ---------- */
+// Planning de la réa sur la période affichée : une ligne par semaine (REA 1 = MAR en 1re semaine de réa)
+function downloadCsv(rows,name){
+  const csv="\ufeff"+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";")).join("\n");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download=name; a.click();
+}
+document.getElementById("csvReaBtn").onclick=()=>{
+  const rows=[["Semaine n°","Du","Au","Cycle","REA 1 (1re semaine)","REA 2 (2e semaine)","Extérieur réa","Absences en réa","Échange de réa"]];
+  for(const W of lastWeeks){
+    const r=rawRows(W.monday), first=r.first, second=[1,2,3,4,5].find(j=>j!==first&&r.s[j][0]==="REA");
+    // jours d'absence regroupés par MAR et par motif : « SG 22–26 févr. (Congé) »
+    const abs=[first,second].filter(Boolean).flatMap(j=>{const out=[];let g=null;
+      W.days.forEach((D,d)=>{const m=D.cell[j].ind&&D.cell[j].ind.motif;
+        if(m&&g&&g.m===m&&g.e===d-1) g.e=d; else if(m){g={m,s:d,e:d};out.push(g)} else g=null});
+      return out.map(x=>`${nm(j)} ${x.s===x.e?fmt.format(W.days[x.s].date):W.days[x.s].date.getDate()+"–"+fmt.format(W.days[x.e].date)} (${x.m})`)});
+    const sw=r.applied?(r.applied.kind==="relay"?`relais inversé ${nm(r.applied.a)} / ${nm(r.applied.b)}`:`${nm(r.applied.b)} à la place de ${nm(r.applied.a)}`):"";
+    rows.push([isoWeek(W.monday),fmtDM.format(W.monday),fmtDM.format(addDays(W.monday,4)),W.cyc+W.w,nm(first),second?nm(second):"",nm(6),abs.join(", "),sw]);
+  }
+  downloadCsv(rows,`planning-rea1-${iso(lastWeeks[0].monday)}.csv`);
+};
 document.getElementById("csvBtn").onclick=()=>{
   const rows=[["Semaine","Cycle","Date","Jour","MAR","Matin","Après-midi","Motif indisponibilité"]];
   for(const W of lastWeeks) W.days.forEach((D,i)=>{for(let j=1;j<=8;j++){const c=D.cell[j]; if(!c.role&&!c.ind) continue;
@@ -1132,7 +1216,7 @@ document.getElementById("regenBtn").onclick=()=>{
     const gone=st.rea.map(x=>x.id);
     state.reaSwaps=state.reaSwaps.filter(x=>!gone.includes(x.id)&&!gone.includes(x.comp));
   }
-  const from=mondayOf(parse(document.getElementById("viewFrom").value||state.start)), n=+document.getElementById("viewWeeks").value+QUARTER;
+  const from=mondayOf(parse(document.getElementById("viewFrom").value||state.start)), n=Math.max(52,+document.getElementById("viewWeeks").value+QUARTER);   // au moins un an
   for(let guard=0;guard<200;guard++){
     let act=null;
     for(let i=0;i<n&&!act;i++){const W=buildWeek(addDays(from,7*i)); act=W.alerts.map(a=>a[2]).find(x=>x&&(x.reaSwap||(x.swap&&!x.swap.twoLib)))}
@@ -1427,6 +1511,7 @@ document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) r
   document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
   const sec=t==="poste"?"planning":t;
   if(t==="prat") renderPrat();
+  if(t==="annee") renderAnnual();
   if(t==="cons") renderCons();
   if(t==="trame") renderTrame();
   document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+sec);
