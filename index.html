@@ -476,6 +476,53 @@ function baseWeek(w){ // w = 1..10
   s[7]=Array(5).fill("");
   return {k,cyc,s,first,next};
 }
+/* ---------- Positionnement libre des R1 ---------- */
+// state.free = {from, seq} : MAR en 1re semaine de réa (R1) de chaque semaine à partir du lundi « from », choisi
+// librement par l'optimisation (au lieu de l'ordre du relais). Le R1 d'une semaine fait sa 2e semaine (R2) la semaine
+// suivante. Les 3 MAR en endoscopie reçoivent les trames de la semaine en respectant au mieux les enchaînements
+// consultation lib -> bloc ; le reste est corrigé comme après un échange.
+const PAT={P1:["CONS","BLOC","ENDO","CONS","ENDO"],P2:["BLOC","ENDO","CONS","CONSX","ENDO"],P3:["CONS","CONS","ENDO","ENDO","ENDO"]};
+const isFreeOn=()=>!!(state.free&&Array.isArray(state.free.seq)&&state.free.seq.length);
+function freeIdx(mon){return Math.round((mondayOf(mon)-parse(state.free.from))/(7*864e5))}
+// R1 prévu (sans échange) : libre dans la période optimisée, sinon selon l'ordre du relais
+function r1Base(mon){
+  if(isFreeOn()){const i=freeIdx(mon); if(i>=0&&i<state.free.seq.length) return state.free.seq[i]}
+  return baseWeek(cycleWeek(mon)).first;
+}
+const inFree=mon=>{if(!isFreeOn()) return false; const i=freeIdx(mon); return i>=0&&i<=state.free.seq.length+1};
+let roleCache={map:new Map()};
+// Trames d'endoscopie {P1,P2,P3} de la semaine (MAR qui fait chaque trame)
+function endoRoles(mon){
+  mon=mondayOf(mon);
+  if(!inFree(mon)){const b=baseWeek(cycleWeek(mon)).s, r={}; for(let j=1;j<=5;j++) for(const P in PAT) if(b[j].join()===PAT[P].join()) r[P]=j; return r}
+  if(roleCache.free!==state.free||roleCache.order!==relayOrder()||roleCache.start!==state.start) roleCache={free:state.free,order:relayOrder(),start:state.start,map:new Map()};
+  const mi=iso(mon); if(roleCache.map.has(mi)) return roleCache.map.get(mi);
+  const prev=endoRoles(addDays(mon,-7)), libs=prev.libs||{1:0,2:0,3:0,4:0,5:0}, r1=r1Base(mon), r2=r1Base(addDays(mon,-7)), nx=r1Base(addDays(mon,7));
+  const E=[1,2,3,4,5].filter(j=>j!==r1&&j!==r2), sortie=r1Base(addDays(mon,-14));
+  const libAbs=(j,cd)=>{const b=LIB.find(x=>x[0]===cd)[1]; return indispoOn(j,iso(addDays(mon,cd)))||indispoOn(j,iso(addDays(mon,7+b)))?1:0};
+  let best=null, bs=-Infinity;
+  for(const [a,b,c] of [[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]]){
+    const r={P1:E[a],P2:E[b],P3:E[c]};
+    // celui qui entre en réa la semaine suivante ne peut pas avoir de consultation lib (pas de bloc possible ensuite)
+    // les consultations lib (mardi pour P3, jeudi pour P2) vont à des MAR présents ce jour-là et au bloc qui suit,
+    // puis à ceux qui en ont eu le moins
+    const sc=(E.includes(nx)?(r.P1===nx?10:0):0)+(r.P2===prev.P3?3:0)+(r.P1===prev.P2?3:0)-4*(libAbs(r.P3,1)+libAbs(r.P2,3))-(libs[r.P2]+libs[r.P3])+(r.P3===sortie?0.1:0);
+    if(sc>bs){bs=sc;best=r}
+  }
+  best={...best,libs:isReaOnly(mon)?libs:{...libs,[best.P2]:libs[best.P2]+1,[best.P3]:libs[best.P3]+1}};
+  roleCache.map.set(mi,best); return best;
+}
+// Trame de base d'une semaine réelle (avant échanges)
+function baseAt(monday){
+  const mon=mondayOf(monday), b=baseWeek(cycleWeek(mon));
+  if(!inFree(mon)) return b;
+  const r1=r1Base(mon), r2=r1Base(addDays(mon,-7)), s={};
+  for(let j=1;j<=5;j++) s[j]=Array(5).fill("ENDO");
+  const ro=endoRoles(mon); for(const P in PAT) if(ro[P]) s[ro[P]]=PAT[P].slice();
+  s[r1]=Array(5).fill("REA"); s[r2]=Array(5).fill("REA");
+  s[6]=Array(5).fill("REA"); s[7]=Array(5).fill("");
+  return {k:b.k,cyc:b.cyc,s,first:r1,next:r1Base(addDays(mon,7))};
+}
 function cycleWeek(monday){
   const diff=Math.round((mondayOf(monday)-parse(state.start))/(7*864e5));
   return ((diff%10)+10)%10+1;
@@ -505,7 +552,7 @@ const LIB=[[1,0],[3,1]];   // [jour de la consultation lib, jour du bloc la sema
 const REA_ONLY_FROM="2027-04-05";
 const isReaOnly=d=>iso(mondayOf(d))>=REA_ONLY_FROM;
 function rawRows(monday){
-  const mon=mondayOf(monday), w=cycleWeek(mon), {k,cyc,s,first:f0}=baseWeek(w);
+  const mon=mondayOf(monday), {k,cyc,s,first:f0}=baseAt(mon);
   let first=f0, applied=null;
   for(const x of state.reaSwaps){
     const off=Math.round((mon-parse(x.monday))/(7*864e5));
@@ -548,7 +595,7 @@ function fixConsults(s,next,breaks,mon){
 }
 function weekRows(monday,raw){
   const r=rawRows(monday), breaks=[], ext=[];
-  if(!raw&&state.reaSwaps.length){
+  if(!raw&&(state.reaSwaps.length||isFreeOn())){
     const mon=mondayOf(monday), s=r.s;
     fixConsults(s,rawRows(addDays(mon,7)).s,breaks,mon);
     const prev=rawRows(addDays(mon,-7)).s; fixConsults(prev,rawRows(mon).s,null,addDays(mon,-7));
@@ -641,7 +688,7 @@ function proposeCompensation(sw){
 const owesBloc=(j,mondays)=>state.swaps.some(x=>x.to===j&&x.blocDate&&mondays.includes(iso(mondayOf(parse(x.blocDate)))));
 function proposeReaSwap(monday,x,k){
   const mi=iso(monday), m1=addDays(monday,7), m2=addDays(monday,14);
-  const z=baseWeek(cycleWeek(monday)).next;
+  const z=baseAt(monday).next;
   const relay=z!==x&&isFreeWeeks([mi,iso(m1),iso(m2)])&&!absDaysIn(z,monday)&&!absDaysIn(x,m1)&&!owesBloc(z,[mi])&&!owesBloc(x,[iso(m1),iso(m2)])&&!desirAt(z,mi,"avoid")&&!desirAt(x,iso(m1),"avoid")?{monday:mi,a:x,b:z,kind:"relay"}:null;
   if(relay){relay.run=reaRun(z,[monday,m1]); const o=r1Over([relay]); if(o) relay.over=o}
   const bad=p=>(p.over?2:0)+(p.run>MAX_RUN?1:0);
@@ -654,7 +701,7 @@ function proposeReaSwapTo(monday,x){
   const mi=iso(monday), m1=addDays(monday,7);
   const one=!absDaysIn(x,m1)&&!owesBloc(x,[iso(m1)]), weeks=one?[mi]:[mi,iso(m1)];
   if(!isFreeWeeks(weeks)) return null;
-  const s1=baseWeek(cycleWeek(monday)).s, s2=baseWeek(cycleWeek(m1)).s;
+  const s1=baseAt(monday).s, s2=baseAt(m1).s;
   const days=[...[0,1,2,3,4].map(d=>[addDays(monday,d),s1,d]),...(one?[]:[0,1,2,3,4].map(d=>[addDays(m1,d),s2,d]))];
   const busy=r=>r==="CONS"||r==="CONSX"||r==="BLOC";
   // candidats : MAR du roulement en endoscopie la (ou les) semaine(s) concernée(s)
@@ -967,11 +1014,13 @@ function recapTable(W){
 function balanceCounts(y){
   const f={1:0,2:0,3:0,4:0,5:0}, fRef={...f}, l={...f}, lRef={...f}, weeks=[], runs={...f};
   for(const m of yearWeeks(y)){
-    const W=buildWeek(m), b=baseWeek(cycleWeek(m)); weeks.push(W);
+    const W=buildWeek(m), b=baseAt(m); weeks.push(W);
     f[rawRows(m).first]++; fRef[b.first]++;
     if(!W.reaOnly) W.days.forEach((D,d)=>{for(let j=1;j<=5;j++){ if(isLib(D.cell[j].role,d)) l[j]++; if(isLib(b.s[j][d],d)) lRef[j]++ }});
   }
   for(let j=1;j<=5;j++){let r=0;weeks.forEach(W=>{if(reaAt(j,W.monday)){r++; if(r===MAX_RUN+1) runs[j]++} else r=0})}
+  // positionnement libre : les consultations lib de l'année se répartissent à parts égales
+  if(weeks.some(W=>inFree(W.monday))){const T=[1,2,3,4,5].reduce((a,j)=>a+lRef[j],0); for(let j=1;j<=5;j++) lRef[j]=Math.round(T/5)}
   return {f,fRef,l,lRef,weeks,runs};
 }
 // Rééquilibrage des consultations lib : un MAR en excès cède une consultation lib (et le bloc qui suit) à un MAR
@@ -1392,7 +1441,7 @@ document.getElementById("csvBtn").onclick=()=>{
 function staleSwaps(){
   // devenus inutiles (absence supprimée) ou inapplicables (roulement modifié, remplaçant indisponible…)
   const consult=state.swaps.filter(x=>!swapApplies(x)||(!x.bal&&!indispoOn(x.from,x.date)&&!(x.blocDate&&indispoOn(x.from,x.blocDate))));
-  const rea=state.reaSwaps.filter(x=>!x.comp&&(baseWeek(cycleWeek(parse(x.monday))).first!==x.a||(x.desir?!state.desirs.some(d=>d.id===x.desir):!absDaysIn(x.a,parse(x.monday)))));
+  const rea=state.reaSwaps.filter(x=>!x.comp&&(baseAt(parse(x.monday)).first!==x.a||(x.desir?!state.desirs.some(d=>d.id===x.desir):!absDaysIn(x.a,parse(x.monday)))));
   const afr=state.afr.filter(x=>x.from&&!indispoOn(x.from,x.date)&&!indispoOn(x.from,x.blocDate));
   return {consult,rea,afr};
 }
@@ -1477,56 +1526,127 @@ function optHorizon(){
   const n=Math.min(104,Math.round((last-from)/(7*864e5))+3);
   return {from,n};
 }
-function scoreOrder(o,from,n,full){
-  state.order=o; state.reaSwaps=[];
+// Note un planning (ordre du relais ou placement libre déjà en place dans state) après régénération complète
+function scorePlan(from,n,cand){
+  state.reaSwaps=[];
   const desirs=state.desirs.filter(d=>+d.who<=5&&d.monday>=iso(from)&&d.monday<iso(addDays(from,7*n)));
-  if(!full){   // pré-sélection rapide, sans échange : desiderata respectés d'office et absences en 1re semaine de réa
-    let conf=0; for(let i=0;i<n;i++){const m=addDays(from,7*i); if(absDaysIn(rawRows(m).first,m)) conf++}
-    return {o,base:desirs.filter(d=>proposeDesir(d).ok).length,conf};
-  }
   regenerate(from,n);
   let crit=0; for(let i=0;i<n;i++) crit+=buildWeek(addDays(from,7*i)).alerts.filter(a=>a[0]==="crit").length;
   const ys=[...new Set([isoYear(from),isoYear(addDays(from,7*(n-1)))])];
-  let bal=0, runs=0; for(const y of ys){const b=balanceCounts(y); for(let j=1;j<=5;j++){bal+=Math.abs(b.f[j]-b.fRef[j]); runs+=b.runs[j]}}
-  return {o,ok:desirs.filter(d=>proposeDesir(d).ok).length,tot:desirs.length,crit,runs,bal,rs:state.reaSwaps.filter(x=>!x.comp).length};
+  let bal=0, runs=0; for(const y of ys){const b=balanceCounts(y), v=[1,2,3,4,5].map(j=>b.f[j]); bal+=Math.max(...v)-Math.min(...v); for(let j=1;j<=5;j++) runs+=b.runs[j]}
+  return {...cand,ok:desirs.filter(d=>proposeDesir(d).ok).length,tot:desirs.length,crit,runs,bal,rs:state.reaSwaps.filter(x=>!x.comp).length};
+}
+function scoreOrder(o,from,n,full){
+  state.order=o; state.free=null;
+  if(full) return scorePlan(from,n,{o});
+  // pré-sélection rapide, sans échange : desiderata respectés d'office et absences en 1re semaine de réa
+  state.reaSwaps=[];
+  const desirs=state.desirs.filter(d=>+d.who<=5&&d.monday>=iso(from)&&d.monday<iso(addDays(from,7*n)));
+  let conf=0; for(let i=0;i<n;i++){const m=addDays(from,7*i); if(absDaysIn(rawRows(m).first,m)) conf++}
+  return {o,base:desirs.filter(d=>proposeDesir(d).ok).length,conf};
+}
+// Placement libre des R1 sur n semaines à partir de from : recuit simulé sur la suite des R1.
+// Coût : absence en R1 (interdite), 3 semaines de réa d'affilée, plus de 3 R1 sur 10 semaines, desiderata non
+// respectés, jours d'absence en R2 (réa complétée par le renfort), écart à l'équilibre, régularité des R1.
+function freeSeq(from,n){
+  const PRE=R1_WIN-1, POST=R1_WIN-1, F0=[], saved=state.free;
+  state.reaSwaps=[];
+  for(let i=-PRE;i<n;i++) F0.push(r1Base(addDays(from,7*i)));
+  state.free=null; for(let i=n;i<n+POST;i++) F0.push(r1Base(addDays(from,7*i))); state.free=saved;   // après : ordre du relais
+  const ab=[0,1,2,3,4,5].map(j=>j?F0.map((_,i)=>absDaysIn(j,addDays(from,7*(i-PRE)))):[]);
+  const want=[], avoid=[]; for(let i=0;i<n;i++){want.push(0);avoid.push([])}
+  for(const d of state.desirs){const i=Math.round((parse(d.monday)-from)/(7*864e5)); if(i<0||i>=n||+d.who>5) continue; if(d.type==="want") want[i]=+d.who; else avoid[i].push(+d.who)}
+  const tgt=n/5, consN=[...Array(n)].findIndex((_,i)=>isReaOnly(addDays(from,7*i))), nc=consN<0?n:consN;
+  const cost=F=>{
+    let c=0; const cnt=[0,0,0,0,0,0], last=[0,-99,-99,-99,-99,-99];
+    for(let i=PRE;i<F.length;i++){const x=F[i];
+      if(F[i-1]===x||F[i-2]===x) c+=5000;
+      if(i>=PRE+n) continue;
+      const k=i-PRE;
+      if(ab[x][i]) c+=10000+100*ab[x][i];
+      if(ab[x][i+1]) c+=30*ab[x][i+1];
+      if(want[k]&&want[k]!==x) c+=1000;
+      if(avoid[k].includes(x)) c+=1000;
+      cnt[x]++; if(last[x]>-99){const g=i-last[x]; c+=3*(g-5)*(g-5)} last[x]=i;
+    }
+    for(let i=0;i+R1_WIN<=F.length;i++){const w=[0,0,0,0,0,0]; for(let k=i;k<i+R1_WIN;k++) w[F[k]]++; for(let j=1;j<=5;j++) if(w[j]>R1_MAX) c+=5000*(w[j]-R1_MAX)}
+    for(let j=1;j<=5;j++) c+=100*(cnt[j]-tgt)*(cnt[j]-tgt);
+    // consultations lib (avant le passage à la réa seule) : les 2 MAR en endoscopie qui n'entrent pas en réa la
+    // semaine suivante en font une chacun, s'ils sont présents ; on les veut réparties à parts égales
+    if(nc){const L=[0,0,0,0,0,0]; let tot=0;
+      for(let i=PRE;i<PRE+nc;i++) for(let j=1;j<=5;j++) if(j!==F[i]&&j!==F[i-1]&&j!==F[i+1]&&!ab[j][i]){L[j]++;tot++}
+      for(let j=1;j<=5;j++) c+=200*(L[j]-tot/5)*(L[j]-tot/5)}
+    return c;
+  };
+  // départ : la suite actuelle ; recuit simulé avec une graine fixe (résultat reproductible)
+  let seed=12345; const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+  let best=F0.slice(), bc=cost(best);
+  for(let run=0;run<3;run++){
+    let F=best.slice(), fc=bc;
+    for(let it=0,T=2000;it<50000;it++,T*=0.99985){
+      const G=F.slice(), i=PRE+Math.floor(rnd()*n);
+      if(rnd()<0.5) G[i]=1+Math.floor(rnd()*5);
+      else{const k=PRE+Math.floor(rnd()*n); [G[i],G[k]]=[G[k],G[i]]}
+      const gc=cost(G);
+      if(gc<=fc||rnd()<Math.exp((fc-gc)/T)){F=G;fc=gc; if(fc<bc){best=F.slice();bc=fc}}
+    }
+  }
+  return best.slice(PRE,PRE+n);
 }
 const optRank=(a,b)=>b.ok-a.ok||a.crit-b.crit||a.runs-b.runs||a.rs-b.rs||a.bal-b.bal;
 let optRes=null;
+const sameO=(a,b)=>!!a&&!!b&&a.join()===b.join();
+const candLabel=r=>r.free?`Positionnement libre des R1${r.cur?"":" (optimisé)"}`:r.o.map(j=>esc(nm(j))).join(" → ");
 document.getElementById("optBtn").onclick=()=>{
-  const msg=document.getElementById("optMsg"), btn=document.getElementById("optBtn"), snap=JSON.stringify(state), cur=relayOrder();
-  const {from,n}=optHorizon(), same=(a,b)=>a.join()===b.join();
+  const msg=document.getElementById("optMsg"), btn=document.getElementById("optBtn"), snap=JSON.stringify(state);
+  const curFree=isFreeOn(), cur=relayOrder(), {from,n}=optHorizon();
   btn.disabled=true; msg.textContent="Analyse des ordres de relais…";
   // pré-sélection des 24 meilleurs ordres sans échange, plus l'ordre actuel et l'ordre initial
   let pre;
   try{ pre=perms([1,2,3,4,5]).map(o=>{state=JSON.parse(snap); return scoreOrder(o,from,n,false)}) } finally{ state=JSON.parse(snap) }
   pre.sort((a,b)=>b.base-a.base||a.conf-b.conf);
-  const todo=pre.slice(0,24).map(x=>x.o); [cur,ORDER].forEach(o=>{if(!todo.some(t=>same(t,o))) todo.push(o)});
+  const todo=pre.slice(0,24).map(x=>({o:x.o})); [cur,ORDER].forEach(o=>{if(!todo.some(t=>sameO(t.o,o))) todo.push({o})});
+  if(!curFree) todo.find(t=>sameO(t.o,cur)).cur=true;
+  else todo.unshift({free:{from:state.free.from,seq:state.free.seq.slice()},cur:true});
+  todo.unshift({freeNew:true});
   const res=[]; let i=0;
   const step=()=>{
     if(JSON.stringify(state)!==snap){btn.disabled=false; msg.textContent="Analyse interrompue : les données ont changé. Relancez-la."; return}
-    try{ for(const end=Math.min(i+3,todo.length);i<end;i++){state=JSON.parse(snap); res.push(scoreOrder(todo[i],from,n,true))} } finally{ state=JSON.parse(snap) }
-    if(i<todo.length){msg.textContent=`Analyse des ordres de relais… ${i}/${todo.length}`; setTimeout(step); return}
-    btn.disabled=false; res.sort(optRank); optRes={res,cur,snap};
-    const c=res.find(r=>same(r.o,cur)), best=res[0];
-    msg.textContent=same(best.o,cur)||!optRank(best,c)?"L'ordre actuel est déjà le meilleur pour ces desiderata.":`Un autre ordre respecte mieux les desiderata (${best.ok}/${best.tot} contre ${c.ok}/${c.tot} actuellement) : voir ci-dessous.`;
+    try{
+      for(const end=Math.min(i+3,todo.length);i<end;i++){
+        state=JSON.parse(snap); const t=todo[i];
+        if(t.freeNew){msg.textContent="Placement libre des R1…"; const seq=freeSeq(from,n); state=JSON.parse(snap); state.free={from:iso(from),seq}; res.push(scorePlan(from,n,{free:state.free}))}
+        else if(t.free){state.free=t.free; res.push(scorePlan(from,n,t))}
+        else res.push({...scoreOrder(t.o,from,n,true),cur:t.cur});
+      }
+    } finally{ state=JSON.parse(snap) }
+    if(i<todo.length){msg.textContent=`Analyse… ${i}/${todo.length}`; setTimeout(step); return}
+    btn.disabled=false;
+    // un placement libre identique au placement actuel n'est pas proposé deux fois
+    const c=res.find(r=>r.cur), fn=res.find(r=>r.free&&!r.cur);
+    const list=res.filter(r=>!(r===fn&&c&&c.free&&sameO(c.free.seq,fn.free.seq)));
+    list.sort((a,b)=>optRank(a,b)||(!!b.cur-!!a.cur)); optRes={res:list};
+    const best=list[0];
+    msg.textContent=best.cur||!optRank(best,c)?"Le planning actuel est déjà le meilleur pour ces desiderata.":`${best.free?"Le positionnement libre des R1":"Un autre ordre de relais"} respecte mieux les desiderata (${best.ok}/${best.tot} contre ${c.ok}/${c.tot} actuellement) : voir ci-dessous.`;
     renderOpt();
   };
   setTimeout(step);
 };
 function renderOpt(){
   const el=document.getElementById("optOut"); if(!optRes){el.innerHTML="";return}
-  const {res,cur}=optRes, same=(a,b)=>a.join()===b.join();
-  const rows=res.filter((r,k)=>k<8||same(r.o,cur)||same(r.o,ORDER));
-  el.innerHTML=`<table class="list" style="margin-top:8px"><thead><tr><th>Ordre du relais en réa</th><th class="num">Desiderata respectés</th><th class="num">Alertes critiques</th><th class="num">Séries de 3 sem. de réa</th><th class="num">Échanges de réa</th><th class="num">Écart d'équilibre</th><th></th></tr></thead><tbody>`+
-    rows.map(r=>`<tr><td>${r.o.map(j=>esc(nm(j))).join(" → ")}${same(r.o,cur)?` <span class="chip">actuel</span>`:""}${same(r.o,ORDER)&&!same(r.o,cur)?` <span class="chip">initial</span>`:""}</td><td class="num">${r.ok}/${r.tot}</td><td class="num">${r.crit}</td><td class="num">${r.runs}</td><td class="num">${r.rs}</td><td class="num">${r.bal}</td><td>${same(r.o,cur)?"":`<button class="btn small" data-order="${r.o.join(",")}">Appliquer</button>`}</td></tr>`).join("")+`</tbody></table>
-    <p class="note">Chaque ordre est évalué après régénération complète (échanges d'absence, desiderata, rééquilibrages) du ${fmtLong.format(optHorizon().from)} à la fin de la période des desiderata. Le 1er nom fait sa 1re semaine de réa la semaine 1 du cycle, puis le relais suit l'ordre. Appliquer un ordre remplace les échanges de réa en cours et régénère le planning.</p>`;
+  const rows=optRes.res.filter((r,k)=>k<8||r.cur||r.free||sameO(r.o,ORDER));
+  el.innerHTML=`<table class="list" style="margin-top:8px"><thead><tr><th>Placement des R1</th><th class="num">Desiderata respectés</th><th class="num">Alertes critiques</th><th class="num">Séries de 3 sem. de réa</th><th class="num">Échanges de réa</th><th class="num">Écart de R1 entre MAR</th><th></th></tr></thead><tbody>`+
+    rows.map(r=>`<tr><td>${candLabel(r)}${r.cur?` <span class="chip">actuel</span>`:""}${!r.free&&sameO(r.o,ORDER)&&!r.cur?` <span class="chip">initial</span>`:""}</td><td class="num">${r.ok}/${r.tot}</td><td class="num">${r.crit}</td><td class="num">${r.runs}</td><td class="num">${r.rs}</td><td class="num">${r.bal}</td><td>${r.cur?"":`<button class="btn small" data-opt="${optRes.res.indexOf(r)}">Appliquer</button>`}</td></tr>`).join("")+`</tbody></table>
+    <p class="note">Chaque solution est évaluée après régénération complète (échanges d'absence, desiderata, rééquilibrages) du ${fmtLong.format(optHorizon().from)} à la fin de la période des desiderata. Ordre du relais : le 1er nom fait sa 1re semaine de réa la semaine 1 du cycle, puis le relais suit l'ordre. Positionnement libre : le MAR en R1 est choisi semaine par semaine (sans absence, desiderata, au plus 3 R1 sur 10 semaines, pas 3 semaines de réa d'affilée, R1 répartis également), puis il fait sa 2e semaine de réa la semaine suivante ; les trames d'endoscopie (consultations, bloc) sont réattribuées en conséquence. Appliquer remplace les échanges de réa en cours et régénère le planning.</p>`;
 }
-document.getElementById("optOut").onclick=e=>{const b=e.target.closest("button[data-order]"); if(!b) return;
-  const o=b.dataset.order.split(",").map(Number);
-  if(!confirm(`Appliquer l'ordre de relais ${o.map(nm).join(" → ")} ? Les échanges de réa en cours seront remplacés et le planning régénéré.`)) return;
-  const {from,n}=optHorizon(); state.order=o; state.reaSwaps=[]; const r=regenerate(from,Math.max(n,52));
+document.getElementById("optOut").onclick=e=>{const b=e.target.closest("button[data-opt]"); if(!b) return;
+  const r=optRes.res[+b.dataset.opt], label=r.free?"le positionnement libre des R1":`l'ordre de relais ${r.o.map(nm).join(" → ")}`;
+  if(!confirm(`Appliquer ${label} ? Les échanges de réa en cours seront remplacés et le planning régénéré.`)) return;
+  const {from,n}=optHorizon();
+  if(r.free) state.free=r.free; else{state.order=r.o; state.free=null}
+  state.reaSwaps=[]; const g=regenerate(from,Math.max(n,52));
   optRes=null; save(); renderIndispo(); renderPlanning(); renderOpt();
-  document.getElementById("optMsg").textContent=`Ordre du relais appliqué : ${o.map(nm).join(" → ")}. Planning régénéré (${r.added} modification${r.added>1?"s":""}).`;
+  document.getElementById("optMsg").textContent=`${r.free?"Positionnement libre des R1":"Ordre du relais "+r.o.map(nm).join(" → ")} appliqué. Planning régénéré (${g.added} modification${g.added>1?"s":""}).`;
 };
 function renderDesirs(){
   const el=document.getElementById("dList"), list=state.desirs.slice().sort((a,b)=>a.monday.localeCompare(b.monday)||a.who-b.who);
@@ -1762,7 +1882,8 @@ function renderRules(){
       `Consultation lib impossible : un MAR du roulement en endoscopie ce jour-là et libre pour le bloc suivant est proposé. À défaut, deux possibilités (MAR en 2e semaine de réa ou AFR) sont simulées, et celle qui a le moins de conséquences est recommandée. Les autres consultations sont à confier à un extérieur.`,
       `Desiderata de réa 1 (onglet Indisponibilités, ou clic sur la case du MAR dans la vue annuelle) : semaines où un MAR souhaite être, ou ne pas être, en 1re semaine de réa. S'il le faut, un échange est proposé (inversion du relais de préférence, sinon échange des 2 semaines de réa puis rééquilibrage) et appliqué par « Régénérer », sauf s'il fait enchaîner 3 semaines de réa. Un desiderata ne passe jamais avant une absence, et les autres échanges le respectent.`,
       `Au plus ${R1_MAX} semaines de R1 (1re semaine de réa) par MAR sur 10 semaines consécutives. Les échanges proposés (absences, desiderata, rééquilibrages) la respectent ; s'il n'y a pas d'autre solution, l'échange est proposé avec un avertissement mais n'est pas appliqué par « Régénérer ». Un dépassement est signalé en alerte critique.`,
-      `« Optimiser le roulement » (sous la liste des desiderata) : les 120 ordres de relais possibles sont comparés après régénération complète, selon les desiderata respectés, puis les alertes critiques, les séries de 3 semaines de réa, le nombre d'échanges et l'équilibre. L'ordre retenu ne s'applique qu'après validation, et remplace alors les échanges de réa en cours.`,
+      `« Optimiser le roulement » (sous la liste des desiderata) : compare un positionnement libre des R1 et les 120 ordres de relais possibles, après régénération complète, selon les desiderata respectés, puis les alertes critiques, les séries de 3 semaines de réa, le nombre d'échanges et l'équilibre. La solution retenue ne s'applique qu'après validation, et remplace alors les échanges de réa en cours.`,
+      `Positionnement libre des R1 : le MAR en 1re semaine de réa est choisi semaine par semaine, sans suivre un roulement : jamais d'absence en R1, desiderata, au plus ${R1_MAX} R1 sur 10 semaines, pas 3 semaines de réa d'affilée, R1 et consultations lib répartis à parts égales sur la période, le moins possible d'absences en 2e semaine. Le R1 fait sa 2e semaine de réa (R2) la semaine suivante ; les 3 MAR en endoscopie reçoivent les trames de la semaine (consultations, bloc) en respectant au mieux l'enchaînement consultation lib puis bloc.`,
       `Une récupération s'ajoute ou se retire d'un clic sur la case du MAR dans Planning par MAR.`,
       `Bouton « Régénérer le planning » : après une mise à jour des indisponibilités, il retire les échanges devenus inutiles et applique toutes les propositions.`]],
     ["Alertes",[
