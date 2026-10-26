@@ -28,6 +28,10 @@ header p{margin:0 0 14px;color:#b8cdd1;font-size:.9rem}
 nav{display:flex;gap:4px;flex-wrap:wrap}
 nav button{font:inherit;border:0;background:transparent;color:#cfe0e2;padding:10px 16px;border-radius:8px 8px 0 0;cursor:pointer}
 nav button[aria-selected="true"]{background:var(--bg);color:var(--ink);font-weight:700}
+.subnav{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 14px}
+.subnav:empty{display:none}
+.subnav button{font:inherit;border:1px solid var(--line);background:var(--paper);color:var(--ink);padding:6px 14px;border-radius:999px;cursor:pointer}
+.subnav button[aria-selected="true"]{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:700}
 nav button:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #f2b705;outline-offset:2px}
 main{max-width:1100px;margin:0 auto;padding:20px}
 section[hidden]{display:none}
@@ -156,7 +160,7 @@ body:not(.locked)>#gate{display:none}
 header{position:relative}
 @media print{
   #gate,.logout{display:none!important}
-  header nav,.toolbar,#tab-indispo,#tab-params{display:none!important}
+  header nav,.subnav,.toolbar,#tab-indispo,#tab-params{display:none!important}
   #tab-trame>.note{display:none} .trame-wk{break-after:page} .trame{min-width:0;width:100%}
   body{background:#fff} .week{break-inside:avoid;border-color:#999}
   .sync{display:none!important}
@@ -196,20 +200,18 @@ header{position:relative}
   <button class="btn small logout" id="logoutBtn">Se déconnecter</button>
   <span class="sync" id="syncStatus" hidden></span>
   <h1>Planning MAR · Réa / Endoscopie</h1>
-  <p>Cycle de 10 semaines : réa à 3 (2 MAR du roulement + 1 extérieur), endoscopie à 3, consultations intégrées. Les jours off des temps partiels se saisissent dans les indisponibilités.</p>
   <nav role="tablist">
-    <button role="tab" data-tab="planning" aria-selected="true">Planning par MAR</button>
-    <button role="tab" data-tab="poste" aria-selected="false">Planning par poste</button>
+    <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
     <button role="tab" data-tab="annee" aria-selected="false">Vue annuelle</button>
-    <button role="tab" data-tab="prat" aria-selected="false">Par praticien</button>
-    <button role="tab" data-tab="cons" aria-selected="false">Consultations</button>
-    <button role="tab" data-tab="trame" aria-selected="false">Trame service</button>
     <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
+    <button role="tab" data-tab="recap" aria-selected="false">Récapitulatifs</button>
     <button role="tab" data-tab="params" aria-selected="false">Paramètres</button>
   </nav>
 </header>
 
 <main>
+<!-- sous-onglets (Planning : par MAR / par poste ; Récapitulatifs : par praticien / consultations / trame) -->
+<div class="subnav" id="subnav" role="tablist"></div>
 <!-- PLANNING -->
 <section id="tab-planning">
   <div class="toolbar">
@@ -229,7 +231,7 @@ header{position:relative}
     <div class="summary" id="summary"></div>
   </div>
   <div class="legend" id="legend"></div>
-  <p class="note" id="planHint" style="margin:-6px 0 12px">Planning par MAR : cliquez sur la case d'un MAR pour lui ajouter une récupération ce jour-là, ou recliquez pour la retirer.</p>
+  <p class="note" id="planHint" style="margin:-6px 0 12px">Planning, vue par MAR : cliquez sur la case d'un MAR pour lui ajouter une récupération ce jour-là, ou recliquez pour la retirer.</p>
   <p class="note" id="planMsg" role="status" style="margin:-6px 0 12px;color:var(--accent);font-weight:700"></p>
   <details class="panel" id="balanceBox" style="padding:12px 16px"><summary style="cursor:pointer;font-weight:700">Équilibre sur l'année</summary><div class="scroll"><div id="balance"></div></div></details>
   <div id="weeks"></div>
@@ -1966,7 +1968,7 @@ function renderRules(){
       `Pour respecter un desiderata, un échange peut faire enchaîner 3 semaines de réa d'affilée (jamais 4) : il est alors appliqué par « Régénérer » et n'est pas compté comme série à éviter.`,
       `Desiderata « être REA 1 » : respectés le plus possible, avant l'équilibre et la régularité des R1 (seules les règles d'absence, de semaines d'affilée et de maximum de R1 passent avant).`,
       `Positionnement libre des R1 : le MAR en 1re semaine de réa est choisi semaine par semaine, sans suivre un roulement : jamais d'absence en R1, desiderata, au plus ${R1_MAX} R1 sur 10 semaines, pas 3 semaines de réa d'affilée, R1 et consultations lib répartis à parts égales sur la période, le moins possible d'absences en 2e semaine. Le R1 fait sa 2e semaine de réa (R2) la semaine suivante ; les 3 MAR en endoscopie reçoivent les trames de la semaine (consultations, bloc) en respectant au mieux l'enchaînement consultation lib puis bloc.`,
-      `Une récupération s'ajoute ou se retire d'un clic sur la case du MAR dans Planning par MAR.`,
+      `Une récupération s'ajoute ou se retire d'un clic sur la case du MAR dans Planning (vue par MAR).`,
       `Bouton « Régénérer le planning » : après une mise à jour des indisponibilités, il retire les échanges devenus inutiles et applique toutes les propositions.`]],
     ["Alertes",[
       `Critique : réa à moins de 2 (jamais compensée par un MAR de l'endoscopie), endoscopie incomplète, renfort nécessaire mais indisponible, absence en 1re semaine de réa sans échange possible, consultation lib sans remplaçant.`,
@@ -2005,16 +2007,31 @@ function load2(){ if(typeof fillOffSelect==="function") setTimeout(fillOffSelect
 /* ---------- Onglets ---------- */
 // Les onglets « par MAR » et « par poste » partagent la même section (période, alertes, export)
 let planView="mar";
-document.querySelector("nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) return;
-  document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
-  const sec=t==="poste"?"planning":t;
-  if(t==="prat") renderPrat();
-  if(t==="annee") renderAnnual();
-  if(t==="cons") renderCons();
-  if(t==="trame") renderTrame();
-  if(t==="indispo") renderDesirs();
-  document.querySelectorAll("main>section").forEach(s=>s.hidden=s.id!=="tab-"+sec);
-  if(sec==="planning"){planView=t==="poste"?"poste":"mar"; renderPlanning()}};
+// 5 onglets ; Planning et Récapitulatifs ont des sous-onglets
+const SUBTABS={planning:[["mar","Par MAR"],["poste","Par poste"]],recap:[["prat","Par praticien"],["cons","Consultations"],["trame","Trame service (Excel)"]]};
+const subSel={planning:"mar",recap:"prat"};
+function renderSubnav(t){
+  const list=SUBTABS[t]||[];
+  document.getElementById("subnav").innerHTML=list.map(([k,l])=>`<button role="tab" data-sub="${k}" aria-selected="${subSel[t]===k}">${l}</button>`).join("");
+  return list;
+}
+function showTab(t,sub){
+  if(sub) subSel[t]=sub;
+  document.querySelectorAll("header nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));
+  const list=renderSubnav(t);
+  const s2=list.length?subSel[t]:null, sec=t==="planning"?"planning":t==="recap"?s2:t;
+  if(sec==="prat") renderPrat();
+  if(sec==="annee") renderAnnual();
+  if(sec==="cons") renderCons();
+  if(sec==="trame") renderTrame();
+  if(sec==="indispo") renderDesirs();
+  document.querySelectorAll("main>section").forEach(x=>x.hidden=x.id!=="tab-"+sec);
+  if(sec==="planning"){planView=s2; renderPlanning()}
+}
+let curTab="planning";
+document.querySelector("header nav").onclick=e=>{const t=e.target.dataset.tab; if(!t) return; curTab=t; showTab(t)};
+document.getElementById("subnav").onclick=e=>{const k=e.target.dataset.sub; if(!k) return; showTab(curTab,k)};
+renderSubnav("planning");   // (le planning est affiché au chargement des données)
 ["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
 
 /* ---------- Stockage en ligne (Google Apps Script) ---------- */
