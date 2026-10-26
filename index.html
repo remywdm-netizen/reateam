@@ -407,7 +407,7 @@ header{position:relative}
       <label>Heures de jour perdues après une garde (repos de sécurité)<input type="number" id="gR" min="0" step="1" style="width:80px"></label>
       <label>Semaines travaillées par an<input type="number" id="gW" min="1" step="1" style="width:80px"></label>
     </div>
-    <p class="note">Sans garde : temps de jour selon la quotité. Avec gardes : temps de jour, moins le repos de sécurité qui suit chaque garde, plus la durée des gardes, ramené à une semaine moyenne. Hypothèses modifiables ci-dessus.</p>
+    <p class="note">Sans garde : temps de jour. Pour les MAR du roulement (mention « planning »), il est déduit des autres onglets : jours travaillés sur l'année du planning, temps partiels et absences saisis compris (jours de temps partiel non travaillés ; congés, formations, maladie, gardes, récupérations retirés de la période), en supposant l'organisation et les effectifs constants. Leurs gardes sont réparties sur leurs semaines de présence de cette même année. Pour les autres MAR : quotité × heures de jour à 100 %. Avec gardes : temps de jour, moins le repos de sécurité qui suit chaque garde, plus la durée des gardes, ramené à une semaine moyenne. Hypothèses modifiables ci-dessus.</p>
   </figure>
   <div class="panel">
     <h2 style="margin-bottom:6px">Gardes par praticien et par année</h2>
@@ -2099,6 +2099,19 @@ renderSubnav("planning");   // (le planning est affiché au chargement des donn�
 const G_YEARS=[]; for(let y=2026;y<=2050;y++) G_YEARS.push(y);
 const G_DEF={pool:730,end:60,ret:67,H:45,G:16,R:9,W:45};
 const G_COL={a:"#2a78d6",b:"#eb6834"};   // séries : aucune garde après 60 ans / demi-garde ; sans garde / avec gardes
+// Temps de jour des MAR du roulement, déduit du planning sur l'année (organisation et effectifs constants) :
+// un jour de semaine où le MAR est présent est travaillé (réa, endoscopie, consultations, bloc), sauf ses jours de
+// temps partiel. Congés, formations, maladie, gardes, récupérations (repos de garde, déjà comptés par le repos de
+// sécurité) et autres absences sont retirés de la période.
+function planDayHours(H){
+  const weeks=yearWeeks(isoYear(parse(state.start))), out={};
+  for(let j=1;j<=5;j++){let worked=0, present=0;
+    weeks.forEach(m=>{for(let d=0;d<5;d++){const i=indispoOn(j,iso(addDays(m,d)));
+      if(i&&i.motif!=="Temps partiel") continue; present++; if(!i) worked++}});
+    if(present) out[nm(j).toUpperCase()]={hpw:worked*H/present,days:worked,weeks:+(present/5).toFixed(1),from:fmt.format(weeks[0]),to:fmt.format(addDays(weeks[weeks.length-1],4))};
+  }
+  return out;
+}
 function gData(){state.gardes=state.gardes||{}; state.gardes.team=state.gardes.team||[]; state.gardes.p={...G_DEF,...(state.gardes.p||{})}; return state.gardes}
 function parseTeam(txt){
   const out=[], err=[];
@@ -2177,15 +2190,17 @@ async function renderGardes(){
   mk("gcXmas",{type:"line",data:{labels:G_YEARS,datasets:[line(la,A.map(r=>+X(r).toFixed(2)),G_COL.a),line(lb,B.map(r=>+X(r).toFixed(2)),G_COL.b)]},
     options:opts("gardes de fêtes / an / temps plein",c=>`${c.dataset.label} : ${String(c.raw).replace(".",",")} par an (1 tous les ${f1(1/c.raw)} ans)`)});
   // temps de travail par praticien (présents cette année-là)
-  const rows=D.team.filter(m=>R.cells[m.id].cls!=="gone"&&R.cells[m.id].cls!=="rp").map(m=>{const c=R.cells[m.id], day=c.work*P.H/100;
-    return {id:m.id,sans:+day.toFixed(1),avec:+(day+c.gardes*(P.G-P.R)/P.W).toFixed(1),g:Math.round(c.gardes)}});
+  // temps de jour : déduit du planning pour les MAR du roulement (organisation constante), sinon quotité × heures à 100 %
+  const PL=planDayHours(P.H);
+  const rows=D.team.filter(m=>R.cells[m.id].cls!=="gone"&&R.cells[m.id].cls!=="rp").map(m=>{const c=R.cells[m.id], pl=PL[m.id.toUpperCase()], day=pl?pl.hpw:c.work*P.H/100;
+    return {id:m.id+(pl?" ·planning":""),sans:+day.toFixed(1),avec:+(day+c.gardes*(P.G-P.R)/(pl?pl.weeks:P.W)).toFixed(1),g:Math.round(c.gardes),pl}});
   const nr=D.team.filter(m=>R.cells[m.id].cls==="rp").length;
   if(nr) rows.push({id:`Remplaçant (×${nr})`,sans:P.H,avec:+(P.H+R.base*(P.G-P.R)/P.W).toFixed(1),g:Math.round(R.base)});
   mk("gcHours",{type:"bar",data:{labels:rows.map(r=>r.id),datasets:[
       {label:"Sans garde",data:rows.map(r=>r.sans),backgroundColor:G_COL.a,borderRadius:4,barPercentage:.8,categoryPercentage:.8},
       {label:"Avec gardes",data:rows.map(r=>r.avec),backgroundColor:G_COL.b,borderRadius:4,barPercentage:.8,categoryPercentage:.8}]},
     options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
-      plugins:{legend:{position:"bottom",labels:{usePointStyle:true,boxWidth:8}},tooltip:{callbacks:{label:c=>`${c.dataset.label} : ${String(c.raw).replace(".",",")} h/semaine`,afterBody:c=>`${rows[c[0].dataIndex].g} gardes dans l'année`}}},
+      plugins:{legend:{position:"bottom",labels:{usePointStyle:true,boxWidth:8}},tooltip:{callbacks:{label:c=>`${c.dataset.label} : ${String(c.raw).replace(".",",")} h/semaine`,afterBody:c=>{const r=rows[c[0].dataIndex]; return [`${r.g} gardes dans l'année`].concat(r.pl?[`Temps de jour déduit du planning : ${r.pl.days} jours travaillés sur ${String(r.pl.weeks).replace(".",",")} semaines de présence (${r.pl.from} → ${r.pl.to})`]:["Temps de jour : quotité × heures à 100 % (hypothèse)"])}}}},
       scales:{x:{beginAtZero:true,grid:{color:grid},title:{display:true,text:"heures / semaine (moyenne)"}},y:{grid:{display:false},ticks:{autoSkip:false}}}}});
 }
 ["gPool","gEnd","gRet","gH","gG","gR","gW"].forEach(id=>document.getElementById(id).onchange=e=>{
