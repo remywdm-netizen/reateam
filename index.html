@@ -28,18 +28,6 @@ header p{margin:0 0 14px;color:#b8cdd1;font-size:.9rem}
 nav{display:flex;gap:4px;flex-wrap:wrap}
 nav button{font:inherit;border:0;background:transparent;color:#cfe0e2;padding:10px 16px;border-radius:8px 8px 0 0;cursor:pointer}
 nav button[aria-selected="true"]{background:var(--bg);color:var(--ink);font-weight:700}
-.gcharts{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
-.gfig{margin:0 0 16px}
-.gfig figcaption{display:flex;flex-direction:column;gap:2px;margin-bottom:8px}
-.gfig figcaption span{color:var(--muted);font-size:.85rem}
-.gbox{position:relative;height:280px}
-.gbox.tall{height:520px}
-table.gt td,table.gt th{text-align:center;padding:3px 5px;font-variant-numeric:tabular-nums}
-table.gt td.n{text-align:left;white-space:nowrap;font-weight:700}
-table.gt td.ex{color:var(--muted)}
-table.gt td.fx{background:#ece8f7}
-table.gt td.rp{background:#e3f3e8}
-table.gt td.hi{font-weight:800;color:var(--crit)}
 .subnav{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 14px}
 .subnav:empty{display:none}
 .subnav button{font:inherit;border:1px solid var(--line);background:var(--paper);color:var(--ink);padding:6px 14px;border-radius:999px;cursor:pointer}
@@ -217,7 +205,6 @@ header{position:relative}
     <button role="tab" data-tab="annee" aria-selected="false">Vue annuelle</button>
     <button role="tab" data-tab="indispo" aria-selected="false">Indisponibilités</button>
     <button role="tab" data-tab="recap" aria-selected="false">Récapitulatifs</button>
-    <button role="tab" data-tab="gardes" aria-selected="false">Gardes</button>
     <button role="tab" data-tab="params" aria-selected="false">Paramètres</button>
   </nav>
 </header>
@@ -379,50 +366,6 @@ header{position:relative}
 </section>
 
 <!-- PARAMÈTRES -->
-<!-- GARDES : évolution dans le temps -->
-<section id="tab-gardes" hidden>
-  <div class="panel">
-    <h2>Gardes : évolution 2026-2050</h2>
-    <p class="note" style="margin:0 0 12px">730 gardes par an (365 nuits × 2 médecins) réparties entre les gardeurs selon leur quotité. Deux scénarios : <strong>aucune garde après 60 ans</strong> (règle actuelle) et <strong>demi-garde après 60 ans</strong> (les plus de 60 ans gardent à mi-charge). Départ en retraite remplacé par un MAR de 35 ans, sauf indication contraire dans le tableau de l'équipe.</p>
-    <div class="row">
-      <label>Gardes par an<input type="number" id="gPool" min="0" step="1" style="width:90px"></label>
-      <label>Fin des gardes à<input type="number" id="gEnd" min="40" max="70" style="width:70px"></label>
-      <label>Retraite à (âge général)<input type="number" id="gRet" min="55" max="75" style="width:70px"></label>
-      <label>Année affichée (par praticien)<select id="gYear"></select></label>
-      <label>Scénario (par praticien et tableau)<select id="gScen"><option value="0">Aucune garde après 60 ans</option><option value="50">Demi-garde après 60 ans</option></select></label>
-    </div>
-    <p class="note" id="gMsg" role="status"></p>
-  </div>
-  <div class="gcharts">
-    <figure class="panel gfig"><figcaption><strong>Gardes par an pour un temps plein</strong><span>selon la règle après 60 ans</span></figcaption><div class="gbox"><canvas id="gcLoad"></canvas></div></figure>
-    <figure class="panel gfig"><figcaption><strong>Effectif de garde</strong><span>somme des quotités des gardeurs (un temps plein = 1)</span></figcaption><div class="gbox"><canvas id="gcPool"></canvas></div></figure>
-  </div>
-  <figure class="panel gfig"><figcaption><strong>Gardes de Noël et du Nouvel an</strong><span>nuits des 24, 25, 31 décembre et 1er janvier : 4 nuits × 2 médecins = 8 gardes par an, réparties comme les autres gardes</span></figcaption>
-    <div class="gcharts" style="margin-top:4px"><div class="gbox"><canvas id="gcXmas"></canvas></div><div id="gXmasTxt"></div></div>
-  </figure>
-  <figure class="panel gfig"><figcaption><strong>Temps de travail par praticien, avec et sans gardes</strong><span id="gHoursSub"></span></figcaption><div class="gbox tall"><canvas id="gcHours"></canvas></div>
-    <div class="row" style="margin-top:10px">
-      <label>Heures de jour par semaine à 100 %<input type="number" id="gH" min="0" step="1" style="width:80px"></label>
-      <label>Durée moyenne d'une garde (h)<input type="number" id="gG" min="0" step="1" style="width:80px"></label>
-      <label>Heures de jour perdues après une garde (repos de sécurité)<input type="number" id="gR" min="0" step="1" style="width:80px"></label>
-      <label>Semaines travaillées par an<input type="number" id="gW" min="1" step="1" style="width:80px"></label>
-    </div>
-    <p class="note">Sans garde : temps de jour. Pour les MAR du roulement (mention « planning »), il est déduit des autres onglets : jours travaillés sur l'année du planning, temps partiels et absences saisis compris (jours de temps partiel non travaillés ; congés, formations, maladie, gardes, récupérations retirés de la période), en supposant l'organisation et les effectifs constants. Leurs gardes sont réparties sur leurs semaines de présence de cette même année. Pour les autres MAR : quotité × heures de jour à 100 %. Avec gardes : temps de jour, moins le repos de sécurité qui suit chaque garde, plus la durée des gardes, ramené à une semaine moyenne. Hypothèses modifiables ci-dessus.</p>
-  </figure>
-  <div class="panel">
-    <h2 style="margin-bottom:6px">Gardes par praticien et par année</h2>
-    <p class="note" id="gTabSub" style="margin:0 0 10px"></p>
-    <div class="scroll"><div id="gTable"></div></div>
-  </div>
-  <details class="panel">
-    <summary style="cursor:pointer;font-weight:700">Équipe (données du calcul)</summary>
-    <p class="note">Une ligne par MAR : <code>MAR;Naissance;Quotité;Quotité 2026;Gardes;Départ;Remplaçant</code>. Quotité en % (à partir de 2027) ; Quotité 2026 si elle était différente. Gardes : vide = gardes normales, 0 = ne garde pas, un nombre = forfait annuel compté à part jusqu'à la fin des gardes. Départ : année de départ du service avant la retraite. Remplaçant : quotité de garde du remplaçant (vide = 100, 0 = non remplacé). Âge retraite : facultatif, remplace l'âge général pour ce MAR. Ces données sont enregistrées avec le reste du planning (navigateur et stockage en ligne), pas dans le code du site.</p>
-    <textarea id="gTeam" rows="14" style="width:100%;font-family:ui-monospace,monospace;font-size:.85rem"></textarea>
-    <div class="row" style="margin-top:8px"><button class="btn" id="gSave">Enregistrer l'équipe</button></div>
-    <p class="note" id="gTeamMsg" role="status"></p>
-  </details>
-</section>
-
 <section id="tab-params" hidden>
   <div class="panel">
     <h2>Début du cycle</h2>
@@ -2082,7 +2025,6 @@ function showTab(t,sub){
   if(sec==="cons") renderCons();
   if(sec==="trame") renderTrame();
   if(sec==="indispo") renderDesirs();
-  if(sec==="gardes") renderGardes();
   document.querySelectorAll("main>section").forEach(x=>x.hidden=x.id!=="tab-"+sec);
   if(sec==="planning"){planView=s2; renderPlanning()}
 }
@@ -2091,128 +2033,6 @@ document.querySelector("header nav").onclick=e=>{const t=e.target.dataset.tab; i
 document.getElementById("subnav").onclick=e=>{const k=e.target.dataset.sub; if(!k) return; showTab(curTab,k)};
 renderSubnav("planning");   // (le planning est affiché au chargement des données)
 ["viewFrom","viewWeeks","onlyAlerts"].forEach(id=>document.getElementById(id).onchange=renderPlanning);
-
-/* ---------- Gardes : évolution dans le temps ---------- */
-// Modèle : un nombre fixe de gardes par an (730) réparti entre les gardeurs au prorata de leur quotité.
-// Fin des gardes à 60 ans (ou demi-charge selon le scénario), retraite à 67 ans remplacée par un MAR de 35 ans à 100 %.
-// Données de l'équipe : state.gardes.team (non incluses dans le code du site).
-const G_YEARS=[]; for(let y=2026;y<=2050;y++) G_YEARS.push(y);
-const G_DEF={pool:730,end:60,ret:67,H:45,G:16,R:9,W:45};
-const G_COL={a:"#2a78d6",b:"#eb6834"};   // séries : aucune garde après 60 ans / demi-garde ; sans garde / avec gardes
-// Temps de jour des MAR du roulement, déduit du planning sur l'année (organisation et effectifs constants) :
-// un jour de semaine où le MAR est présent est travaillé (réa, endoscopie, consultations, bloc), sauf ses jours de
-// temps partiel. Congés, formations, maladie, gardes, récupérations (repos de garde, déjà comptés par le repos de
-// sécurité) et autres absences sont retirés de la période.
-function planDayHours(H){
-  const weeks=yearWeeks(isoYear(parse(state.start))), out={};
-  for(let j=1;j<=5;j++){let worked=0, present=0;
-    weeks.forEach(m=>{for(let d=0;d<5;d++){const i=indispoOn(j,iso(addDays(m,d)));
-      if(i&&i.motif!=="Temps partiel") continue; present++; if(!i) worked++}});
-    if(present) out[nm(j).toUpperCase()]={hpw:worked*H/present,days:worked,weeks:+(present/5).toFixed(1),from:fmt.format(weeks[0]),to:fmt.format(addDays(weeks[weeks.length-1],4))};
-  }
-  return out;
-}
-function gData(){state.gardes=state.gardes||{}; state.gardes.team=state.gardes.team||[]; state.gardes.p={...G_DEF,...(state.gardes.p||{})}; return state.gardes}
-function parseTeam(txt){
-  const out=[], err=[];
-  txt.split(/\r?\n/).forEach((l,i)=>{ if(!l.trim()) return; const c=l.split(/[;\t]/).map(x=>x.trim());
-    if(i===0&&!/^\d{4}$/.test(c[1]||"")) return;   // en-tête
-    const num=v=>v===""||v==null?null:+String(v).replace("%","").replace(",",".");
-    const m={id:c[0],born:num(c[1]),q:num(c[2]),q26:num(c[3]),g:num(c[4]),leave:num(c[5]),repl:num(c[6]),ret:num(c[7])};
-    if(!m.id||!m.born||m.q==null||isNaN(m.born)||isNaN(m.q)){err.push(i+1);return}
-    out.push(m)});
-  return {team:out,err};
-}
-const teamText=t=>"MAR;Naissance;Quotité;Quotité 2026;Gardes;Départ;Remplaçant;Âge retraite\n"+t.map(m=>[m.id,m.born,m.q,m.q26??"",m.g??"",m.leave??"",m.repl??"",m.ret??""].join(";")).join("\n");
-// État d'un MAR une année donnée : q = quotité de garde (%), fixed = forfait compté à part
-function gState(m,y,P,part){
-  const age=y-m.born, retY=m.born+(m.ret||P.ret), out=m.leave?Math.min(m.leave,retY):retY;
-  if(y>=out){const rq=m.repl==null?100:m.repl; return rq>0?{q:rq,cls:"rp"}:{q:0,cls:"gone"}}
-  const q=(y===G_YEARS[0]&&m.q26!=null)?m.q26:m.q;
-  if(m.g===0) return {q:0,cls:"ex",work:q};
-  if(m.g>0&&age<P.end) return {q:0,cls:"fx",fixed:m.g,work:q};
-  if(age>=P.end) return {q:q*part/100,cls:part?"half":"ex",work:q};
-  return {q,cls:"full",work:q};
-}
-function gYear(y,P,part){
-  const team=gData().team; let w=0, fixed=0, n=0; const cells={};
-  team.forEach(m=>{const c=gState(m,y,P,part); cells[m.id]=c; w+=c.q/100; fixed+=c.fixed||0; if(c.q>0||c.fixed) n++});
-  const base=w>0?(P.pool-fixed)/w:0;
-  team.forEach(m=>{const c=cells[m.id]; c.gardes=c.fixed||base*c.q/100});
-  return {base,w,n,cells};
-}
-let gCharts={};
-async function renderGardes(){
-  const D=gData(), P=D.p;
-  for(const [id,k] of [["gPool","pool"],["gEnd","end"],["gRet","ret"],["gH","H"],["gG","G"],["gR","R"],["gW","W"]]) document.getElementById(id).value=P[k];
-  const ys=document.getElementById("gYear"); if(!ys.options.length){ys.innerHTML=G_YEARS.map(y=>`<option>${y}</option>`).join(""); ys.value=2040}
-  const ta=document.getElementById("gTeam"); if(document.activeElement!==ta) ta.value=teamText(D.team);
-  const msg=document.getElementById("gMsg");
-  if(!D.team.length){msg.textContent="Aucune donnée d'équipe : ouvrez « Équipe (données du calcul) » en bas de page, collez le tableau de l'équipe puis enregistrez."; return}
-  const A=G_YEARS.map(y=>gYear(y,P,0)), B=G_YEARS.map(y=>gYear(y,P,50));
-  const pk=a=>a.reduce((m,r,i)=>r.base>m.v?{v:r.base,y:G_YEARS[i]}:m,{v:0,y:0});
-  const pa=pk(A), pb=pk(B);
-  msg.textContent=`${G_YEARS[0]} : ${Math.round(A[0].base)} gardes par an pour un temps plein (${A[0].n} gardeurs). Pic : ${Math.round(pa.v)} en ${pa.y} sans garde après ${P.end} ans, ${Math.round(pb.v)} en ${pb.y} avec demi-garde après ${P.end} ans.`;
-  try{ if(!window.Chart) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js") }
-  catch(e){msg.textContent+=" (Graphiques indisponibles : bibliothèque non chargée, vérifiez la connexion.)"}
-  const y=+ys.value, part=+document.getElementById("gScen").value, R=gYear(y,P,part);
-  const scen=part?`demi-garde après ${P.end} ans`:`aucune garde après ${P.end} ans`;
-  document.getElementById("gHoursSub").textContent=`${y} · ${scen} · heures par semaine en moyenne`;
-  document.getElementById("gTabSub").textContent=`Scénario : ${scen}. Violet : forfait compté à part ; vert : remplaçant ; gris : ne garde pas ; rouge : 50 gardes ou plus.`;
-  // tableau (aussi la vue accessible des graphiques)
-  const Y=G_YEARS.map(yy=>gYear(yy,P,part));
-  document.getElementById("gTable").innerHTML=`<table class="list gt"><thead><tr><th>MAR</th>${G_YEARS.map(yy=>`<th>${String(yy).slice(2)}</th>`).join("")}</tr></thead><tbody>`+
-    `<tr><td class="n">Temps plein</td>${Y.map(r=>`<td><strong>${Math.round(r.base)}</strong></td>`).join("")}</tr>`+
-    D.team.map(m=>`<tr><td class="n">${esc(m.id)} <span style="color:var(--muted);font-weight:400">${String(m.born).slice(2)}</span></td>`+Y.map(r=>{const c=r.cells[m.id];
-      if(c.cls==="gone") return `<td class="ex">·</td>`; const g=Math.round(c.gardes);
-      return `<td class="${c.cls==="fx"?"fx":c.cls==="rp"?"rp":c.cls==="ex"?"ex":""}${g>=50?" hi":""}">${c.cls==="ex"?"0":g}</td>`}).join("")+`</tr>`).join("")+`</tbody></table>`;
-  if(!window.Chart) return;
-  const css=getComputedStyle(document.body), ink="#52514e", grid="#e6e9e9";
-  Chart.defaults.font.family=css.fontFamily; Chart.defaults.color=ink;
-  const mk=(id,cfg)=>{if(gCharts[id]) gCharts[id].destroy(); gCharts[id]=new Chart(document.getElementById(id),cfg)};
-  const line=(label,data,col)=>({label,data,borderColor:col,backgroundColor:col,borderWidth:2,pointRadius:0,pointHoverRadius:5,tension:0});
-  const opts=(yt,tip)=>({responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
-    plugins:{legend:{position:"bottom",labels:{usePointStyle:true,boxWidth:8}},tooltip:{callbacks:{label:tip}}},
-    scales:{x:{grid:{display:false},ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:9}},y:{beginAtZero:false,grid:{color:grid},title:{display:true,text:yt}}}});
-  const la=`Aucune garde après ${P.end} ans`, lb=`Demi-garde après ${P.end} ans`;
-  mk("gcLoad",{type:"line",data:{labels:G_YEARS,datasets:[line(la,A.map(r=>+r.base.toFixed(1)),G_COL.a),line(lb,B.map(r=>+r.base.toFixed(1)),G_COL.b)]},
-    options:opts("gardes / an / temps plein",c=>`${c.dataset.label} : ${c.raw} gardes (${(c.datasetIndex?B:A)[c.dataIndex].n} gardeurs)`)});
-  mk("gcPool",{type:"line",data:{labels:G_YEARS,datasets:[line(la,A.map(r=>+r.w.toFixed(1)),G_COL.a),line(lb,B.map(r=>+r.w.toFixed(1)),G_COL.b)]},
-    options:opts("temps pleins de garde",c=>`${c.dataset.label} : ${c.raw} temps pleins`)});
-  // Noël / Nouvel an : 8 gardes par an, au prorata des gardes de chacun ; intervalle moyen entre deux fêtes
-  const X=r=>8*r.base/P.pool;   // gardes de fêtes par an pour un temps plein
-  const every=r=>X(r)>0?1/X(r):0, f1=v=>v.toFixed(1).replace(".",",");
-  const pick=yy=>G_YEARS.indexOf(yy);
-  const yNow=G_YEARS[0], yPk=pa.y;
-  document.getElementById("gXmasTxt").innerHTML=`<table class="list gt"><thead><tr><th></th><th>${yNow}</th><th>${y}</th><th>${yPk} (pic)</th></tr></thead><tbody>`+
-    [[la,A],[lb,B]].map(([l,S])=>`<tr><td class="n" style="white-space:normal">${l}</td>${[yNow,y,yPk].map(yy=>{const r=S[pick(yy)];return `<td>${f1(X(r))} / an<br><span style="color:var(--muted)">1 tous les ${f1(every(r))} ans</span></td>`}).join("")}</tr>`).join("")+
-    `</tbody></table><p class="note">Pour un temps plein : nombre moyen de gardes de fêtes par an (Noël 24-25 ou Nouvel an 31-1), et intervalle moyen entre deux fêtes de garde. Dès qu'il y a moins de 8 temps pleins de garde, chacun en ferait plus d'une par an.</p>`;
-  mk("gcXmas",{type:"line",data:{labels:G_YEARS,datasets:[line(la,A.map(r=>+X(r).toFixed(2)),G_COL.a),line(lb,B.map(r=>+X(r).toFixed(2)),G_COL.b)]},
-    options:opts("gardes de fêtes / an / temps plein",c=>`${c.dataset.label} : ${String(c.raw).replace(".",",")} par an (1 tous les ${f1(1/c.raw)} ans)`)});
-  // temps de travail par praticien (présents cette année-là)
-  // temps de jour : déduit du planning pour les MAR du roulement (organisation constante), sinon quotité × heures à 100 %
-  const PL=planDayHours(P.H);
-  const rows=D.team.filter(m=>R.cells[m.id].cls!=="gone"&&R.cells[m.id].cls!=="rp").map(m=>{const c=R.cells[m.id], pl=PL[m.id.toUpperCase()], day=pl?pl.hpw:c.work*P.H/100;
-    return {id:m.id+(pl?" ·planning":""),sans:+day.toFixed(1),avec:+(day+c.gardes*(P.G-P.R)/(pl?pl.weeks:P.W)).toFixed(1),g:Math.round(c.gardes),pl}});
-  const nr=D.team.filter(m=>R.cells[m.id].cls==="rp").length;
-  if(nr) rows.push({id:`Remplaçant (×${nr})`,sans:P.H,avec:+(P.H+R.base*(P.G-P.R)/P.W).toFixed(1),g:Math.round(R.base)});
-  mk("gcHours",{type:"bar",data:{labels:rows.map(r=>r.id),datasets:[
-      {label:"Sans garde",data:rows.map(r=>r.sans),backgroundColor:G_COL.a,borderRadius:4,barPercentage:.8,categoryPercentage:.8},
-      {label:"Avec gardes",data:rows.map(r=>r.avec),backgroundColor:G_COL.b,borderRadius:4,barPercentage:.8,categoryPercentage:.8}]},
-    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
-      plugins:{legend:{position:"bottom",labels:{usePointStyle:true,boxWidth:8}},tooltip:{callbacks:{label:c=>`${c.dataset.label} : ${String(c.raw).replace(".",",")} h/semaine`,afterBody:c=>{const r=rows[c[0].dataIndex]; return [`${r.g} gardes dans l'année`].concat(r.pl?[`Temps de jour déduit du planning : ${r.pl.days} jours travaillés sur ${String(r.pl.weeks).replace(".",",")} semaines de présence (${r.pl.from} → ${r.pl.to})`]:["Temps de jour : quotité × heures à 100 % (hypothèse)"])}}}},
-      scales:{x:{beginAtZero:true,grid:{color:grid},title:{display:true,text:"heures / semaine (moyenne)"}},y:{grid:{display:false},ticks:{autoSkip:false}}}}});
-}
-["gPool","gEnd","gRet","gH","gG","gR","gW"].forEach(id=>document.getElementById(id).onchange=e=>{
-  const k={gPool:"pool",gEnd:"end",gRet:"ret",gH:"H",gG:"G",gR:"R",gW:"W"}[id]; const v=+e.target.value; if(isNaN(v)) return;
-  gData().p[k]=v; save(); renderGardes()});
-["gYear","gScen"].forEach(id=>document.getElementById(id).onchange=renderGardes);
-document.getElementById("gSave").onclick=()=>{
-  const r=parseTeam(document.getElementById("gTeam").value), msg=document.getElementById("gTeamMsg");
-  if(!r.team.length){msg.textContent="Aucune ligne valide : vérifiez le format (MAR;Naissance;Quotité;…)."; return}
-  gData().team=r.team; save(); renderGardes();
-  msg.textContent=`Équipe enregistrée : ${r.team.length} MAR.`+(r.err.length?` Ligne${r.err.length>1?"s":""} ignorée${r.err.length>1?"s":""} : ${r.err.join(", ")}.`:"");
-};
 
 /* ---------- Stockage en ligne (Google Apps Script) ---------- */
 // L'URL peut être fixée ici pour tous les postes, ou saisie dans Paramètres (prioritaire, propre à ce navigateur)
