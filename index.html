@@ -24,6 +24,7 @@ body{margin:0;background:var(--bg);color:var(--ink);
   font-family:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;font-size:15px;line-height:1.45}
 header{background:var(--ink);color:#fff;padding:18px 20px 0}
 header h1{margin:0 0 4px;font-size:1.35rem;font-weight:700}
+header h1 .ver{font-size:.7rem;font-weight:400;opacity:.7;margin-left:8px;white-space:nowrap}
 header p{margin:0 0 14px;color:#b8cdd1;font-size:.9rem}
 nav{display:flex;gap:4px;flex-wrap:wrap}
 nav button{font:inherit;border:0;background:transparent;color:#cfe0e2;padding:10px 16px;border-radius:8px 8px 0 0;cursor:pointer}
@@ -199,7 +200,7 @@ header{position:relative}
 <header>
   <button class="btn small logout" id="logoutBtn">Se déconnecter</button>
   <span class="sync" id="syncStatus" hidden></span>
-  <h1>Planning MAR · Réa / Endoscopie</h1>
+  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 5 nov. · plafond R1</span></h1>
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
     <button role="tab" data-tab="annee" aria-selected="false">Vue annuelle</button>
