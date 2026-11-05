@@ -1607,9 +1607,9 @@ function scorePlan(from,n,cand){
   regenerate(from,n);
   let crit=0; for(let i=0;i<n;i++) crit+=buildWeek(addDays(from,7*i)).alerts.filter(a=>a[0]==="crit").length;
   const ys=[...new Set([isoYear(from),isoYear(addDays(from,7*(n-1)))])];
-  let bal=0, runs=0, gaps=0; for(const y of ys){const mons=yearWeeks(y); for(let j=1;j<=5;j++) gaps+=r1Gaps(j,mons).ex;const b=balanceCounts(y), nw=yearWeeks(y).length; bal+=[1,2,3,4,5].reduce((a,j)=>a+Math.abs(b.f[j]-r1Target(j,nw)),0); for(let j=1;j<=5;j++) runs+=b.runs[j]}
+  let bal=0, runs=0, gaps=0, capEx=0; for(const y of ys){const yw=yearWeeks(y).filter(m=>m>=from&&m<addDays(from,7*n)); if(yw.length>=26) for(const j of [1,2,3,4,5].filter(r1Cap)) capEx+=Math.max(0,yw.filter(m=>rawRows(m).first===j).length-r1Cap(j));const mons=yearWeeks(y); for(let j=1;j<=5;j++) gaps+=r1Gaps(j,mons).ex;const b=balanceCounts(y), nw=yearWeeks(y).length; bal+=[1,2,3,4,5].reduce((a,j)=>a+Math.abs(b.f[j]-r1Target(j,nw)),0); for(let j=1;j<=5;j++) runs+=b.runs[j]}
   const fx=Object.entries(fixedSnap||{}).filter(([w,j])=>rawRows(parse(w)).first===+j).length;
-  return {...cand,fx,gaps,ok:desirs.filter(d=>proposeDesir(d).ok).length,tot:desirs.length,crit,runs,bal,rs:state.reaSwaps.filter(x=>!x.comp).length};
+  return {...cand,fx,gaps,capEx,ok:desirs.filter(d=>proposeDesir(d).ok).length,tot:desirs.length,crit,runs,bal,rs:state.reaSwaps.filter(x=>!x.comp).length};
 }
 function scoreOrder(o,from,n,full){
   state.order=o; state.free=null; state.fixed={};
@@ -1688,7 +1688,8 @@ function freeSeq(from,n,opt={}){
   }
   return best.slice(PRE,PRE+n);
 }
-const optRank=(a,b)=>(b.fx||0)-(a.fx||0)||b.ok-a.ok||a.crit-b.crit||a.runs-b.runs||(a.gaps||0)-(b.gaps||0)||a.rs-b.rs||a.bal-b.bal;
+// ordre : R1 imposés gardés, plafonds annuels de R1 respectés, desiderata, alertes critiques…
+const optRank=(a,b)=>(b.fx||0)-(a.fx||0)||(a.capEx||0)-(b.capEx||0)||b.ok-a.ok||a.crit-b.crit||a.runs-b.runs||(a.gaps||0)-(b.gaps||0)||a.rs-b.rs||a.bal-b.bal;
 let optRes=null;
 const sameO=(a,b)=>!!a&&!!b&&a.join()===b.join();
 const candLabel=r=>r.free?`Positionnement libre des R1${r.cur?"":" (optimisé)"}`:r.o.map(j=>esc(nm(j))).join(" → ");
@@ -1722,7 +1723,10 @@ document.getElementById("optBtn").onclick=()=>{
     const list=res.filter(r=>!(r===fn&&c&&c.free&&sameO(c.free.seq,fn.free.seq)));
     list.sort((a,b)=>optRank(a,b)||(!!b.cur-!!a.cur)); optRes={res:list};
     const best=list[0];
-    msg.textContent=best.cur||!optRank(best,c)?"Le planning actuel est déjà le meilleur pour ces desiderata.":`${best.free?"Le positionnement libre des R1":"Un autre ordre de relais"} respecte mieux les desiderata (${best.ok}/${best.tot} contre ${c.ok}/${c.tot} actuellement) : voir ci-dessous.`;
+    // ce qui différencie la meilleure solution de l'actuelle, dans l'ordre du classement
+    const why=[["capEx","R1 au-delà des plafonds",1],["ok","desiderata respectés",-1],["crit","alertes critiques",1],["runs","séries de 3 semaines de réa",1],["gaps","semaines sans R1 en trop",1],["rs","échanges de réa",1]]
+      .filter(([k])=>(best[k]||0)!==(c[k]||0)).slice(0,2).map(([k,l])=>`${l} : ${k==="ok"?best.ok+"/"+best.tot:best[k]||0} contre ${k==="ok"?c.ok+"/"+c.tot:c[k]||0}`).join(", ");
+    msg.textContent=best.cur||!optRank(best,c)?"Le planning actuel est déjà le meilleur.":`${best.free?"Le positionnement libre des R1":"Un autre ordre de relais"} est meilleur que le planning actuel${why?` (${why})`:""} : voir ci-dessous.`;
     renderOpt();
   };
   setTimeout(step);
@@ -1730,8 +1734,9 @@ document.getElementById("optBtn").onclick=()=>{
 function renderOpt(){
   const el=document.getElementById("optOut"); if(!optRes){el.innerHTML="";return}
   const rows=optRes.res.filter((r,k)=>k<8||r.cur||r.free||sameO(r.o,ORDER));
-  el.innerHTML=`<table class="list" style="margin-top:8px"><thead><tr><th>Placement des R1</th>${Object.keys(fixedSnap).length?`<th class="num">R1 imposés gardés</th>`:""}<th class="num">Desiderata respectés</th><th class="num">Alertes critiques</th><th class="num">Séries de 3 sem. de réa</th><th class="num" title="Semaines au-delà du maximum de semaines d'affilée sans R1, tous MAR confondus">Sem. sans R1 en trop</th><th class="num">Échanges de réa</th><th class="num">Écart aux parts de R1</th><th></th></tr></thead><tbody>`+
-    rows.map(r=>`<tr><td>${candLabel(r)}${r.cur?` <span class="chip">actuel</span>`:""}${!r.free&&sameO(r.o,ORDER)&&!r.cur?` <span class="chip">initial</span>`:""}</td>${Object.keys(fixedSnap).length?`<td class="num">${r.fx}/${Object.keys(fixedSnap).length}</td>`:""}<td class="num">${r.ok}/${r.tot}</td><td class="num">${r.crit}</td><td class="num">${r.runs}</td><td class="num">${r.gaps}</td><td class="num">${r.rs}</td><td class="num">${r.bal.toFixed(1).replace(".",",")}</td><td>${r.cur?"":`<button class="btn small" data-opt="${optRes.res.indexOf(r)}">Appliquer</button>`}</td></tr>`).join("")+`</tbody></table>
+  const hasCap=[1,2,3,4,5].some(r1Cap);
+  el.innerHTML=`<table class="list" style="margin-top:8px"><thead><tr><th>Placement des R1</th>${Object.keys(fixedSnap).length?`<th class="num">R1 imposés gardés</th>`:""}${hasCap?`<th class="num" title="R1 au-delà du plafond annuel (${[1,2,3,4,5].filter(r1Cap).map(k=>nm(k)+" "+r1Cap(k)).join(", ")})">R1 au-delà des plafonds</th>`:""}<th class="num">Desiderata respectés</th><th class="num">Alertes critiques</th><th class="num">Séries de 3 sem. de réa</th><th class="num" title="Semaines au-delà du maximum de semaines d'affilée sans R1, tous MAR confondus">Sem. sans R1 en trop</th><th class="num">Échanges de réa</th><th class="num">Écart aux parts de R1</th><th></th></tr></thead><tbody>`+
+    rows.map(r=>`<tr><td>${candLabel(r)}${r.cur?` <span class="chip">actuel</span>`:""}${!r.free&&sameO(r.o,ORDER)&&!r.cur?` <span class="chip">initial</span>`:""}</td>${Object.keys(fixedSnap).length?`<td class="num">${r.fx}/${Object.keys(fixedSnap).length}</td>`:""}${hasCap?`<td class="num${r.capEx?" over":""}">${r.capEx}</td>`:""}<td class="num">${r.ok}/${r.tot}</td><td class="num">${r.crit}</td><td class="num">${r.runs}</td><td class="num">${r.gaps}</td><td class="num">${r.rs}</td><td class="num">${r.bal.toFixed(1).replace(".",",")}</td><td>${r.cur?"":`<button class="btn small" data-opt="${optRes.res.indexOf(r)}">Appliquer</button>`}</td></tr>`).join("")+`</tbody></table>
     <p class="note">Chaque solution est évaluée après régénération complète (échanges d'absence, desiderata, rééquilibrages) du ${fmtLong.format(optHorizon().from)} à la fin de la période des desiderata. Ordre du relais : le 1er nom fait sa 1re semaine de réa la semaine 1 du cycle, puis le relais suit l'ordre. Positionnement libre : le MAR en R1 est choisi semaine par semaine (sans absence, desiderata, au plus 3 R1 sur 10 semaines, pas 3 semaines de réa d'affilée, R1 répartis également), puis il fait sa 2e semaine de réa la semaine suivante ; les trames d'endoscopie (consultations, bloc) sont réattribuées en conséquence. Appliquer remplace les échanges de réa en cours et régénère le planning.</p>`;
 }
 document.getElementById("optOut").onclick=e=>{const b=e.target.closest("button[data-opt]"); if(!b) return;
