@@ -380,8 +380,8 @@ header{position:relative}
   </div>
   <div class="panel">
     <h2>Part des semaines de R1</h2>
-    <p class="note" style="margin:0 0 10px">Par défaut, chaque MAR fait la même part des 1res semaines de réa, quel que soit son temps de travail. Cochez un MAR pour que sa part soit proportionnelle à son temps de travail (par exemple 80 % : 0,8 part contre 1 pour un MAR à part égale). Pris en compte par le positionnement libre des R1 (« Optimiser le roulement »).</p>
-    <div class="row" id="pProrata"></div>
+    <p class="note" style="margin:0 0 10px">Par défaut, chaque MAR fait la même part des 1res semaines de réa, quel que soit son temps de travail. Cochez un MAR pour que sa part soit proportionnelle à son temps de travail (par exemple 80 % : 0,8 part contre 1 pour un MAR à part égale). Un plafond « max R1/an » limite le nombre de 1res semaines de réa du MAR par année (MS : 8 par défaut) ; les R1 en trop sont répartis entre les autres. Pris en compte par le positionnement libre des R1 (« Optimiser le roulement ») et par les échanges proposés.</p>
+    <div id="pProrata" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
   <div class="panel">
     <h2>Règles du planning</h2>
@@ -462,7 +462,7 @@ function load(){
   if(!state||!state.start){state={start:DEFAULT_START,names:{...DEFAULT_NAMES},indispos:[]}}
   // Mise en place du planning au 4 janvier 2027 : appliquée une fois aux navigateurs qui avaient une autre date
   if(!state.startInit){state.start=DEFAULT_START; state.startInit=DEFAULT_START}
-  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; state.desirs=state.desirs||[]; state.fixed=state.fixed||{}; if(!state.prorata) state.prorata={4:true}; delete state.jcRea; state.trame=state.trame||{};
+  state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; state.desirs=state.desirs||[]; state.fixed=state.fixed||{}; if(!state.prorata) state.prorata={4:true}; if(!state.r1Max) state.r1Max={4:8}; delete state.jcRea; state.trame=state.trame||{};
 }
 function save(){try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){} if(typeof cloudChanged==="function") cloudChanged()}
 const nm=j=>state.names[j]||("MAR "+j);
@@ -645,14 +645,19 @@ function r1Over(props){
   const from=addDays(new Date(lo),-7*(R1_WIN-1)), n=Math.round((hi-lo)/(7*864e5))+2*R1_WIN-1;
   const worst=()=>{const f=[]; for(let i=0;i<n;i++) f.push(rawRows(addDays(from,7*i)).first);
     let w={j:0,n:0}; for(let i=0;i+R1_WIN<=n;i++){const c={}; for(let k=i;k<i+R1_WIN;k++) c[f[k]]=(c[f[k]]||0)+1; for(const j in c) if(c[j]>w.n) w={j:+j,n:c[j]}} return w};
-  const before=worst();
+  // plafond annuel : R1 des MAR plafonnés dans les années ISO touchées
+  const ys=[...new Set(add.flatMap(p=>touched(p).map(t=>isoYear(parse(t)))))], capped=[1,2,3,4,5].filter(r1Cap);
+  const yearCounts=()=>{const r=[]; for(const y of ys) for(const j of capped) r.push({j,y,n:yearWeeks(y).filter(m=>rawRows(m).first===j).length}); return r};
+  const before=worst(), cb=capped.length?yearCounts():[];
   state.reaSwaps.push(...add.map((p,i)=>({...p,id:"r1tmp"+i})));
-  let after; try{ after=worst() } finally{ state.reaSwaps.splice(-add.length) }
-  return after.n>R1_MAX&&after.n>before.n?after:null;
+  let after, ca; try{ after=worst(); ca=capped.length?yearCounts():[] } finally{ state.reaSwaps.splice(-add.length) }
+  if(after.n>R1_MAX&&after.n>before.n) return after;
+  const o=ca.find((x,i)=>x.n>r1Cap(x.j)&&x.n>cb[i].n);
+  return o?{j:o.j,n:o.n,year:o.y,cap:r1Cap(o.j)}:null;
 }
 // R1 de j sur les 10 semaines qui finissent la semaine m
 const r1Count=(j,m)=>{let c=0; for(let i=0;i<R1_WIN;i++) if(rawRows(addDays(m,-7*i)).first===j) c++; return c};
-const r1Txt=o=>o?` ${nm(o.j)} aurait alors ${o.n} semaines de R1 sur 10 (maximum ${R1_MAX}) : échange à valider manuellement.`:"";
+const r1Txt=o=>!o?"":o.cap?` ${nm(o.j)} aurait alors ${o.n} semaines de R1 en ${o.year} (maximum ${o.cap}) : échange à valider manuellement.`:` ${nm(o.j)} aurait alors ${o.n} semaines de R1 sur 10 (maximum ${R1_MAX}) : échange à valider manuellement.`;
 const reaAt=(j,m)=>rawRows(m).s[j][0]==="REA";
 // Nombre de semaines de réa d'affilée de j si on l'ajoute en réa les semaines mons (lundis consécutifs)
 // (off : semaines où j quitte la réa du fait de l'échange)
@@ -1201,7 +1206,7 @@ function renderAnnual(){
   const bil=[1,2,3,4,5].map(j=>{
     const r1m=Math.max(0,...weeks.map(W=>r1Count(j,W.monday))), gp=r1Gaps(j,weeks.map(W=>W.monday));
     const reaW=weeks.filter(W=>reaAt(j,W.monday)).length, absD=weeks.reduce((n,W)=>n+W.days.filter(D=>D.cell[j].ind).length,0);
-    return `<tr><td><strong>${esc(nm(j))}</strong> <span class="chip">${QUOT[j]}</span></td><td class="num">${f[j]}</td><td class="num" title="${state.prorata[j]?"au prorata du temps de travail":"part égale"}">${r1Target(j,weeks.length).toFixed(1).replace(".",",")}${state.prorata[j]?" *":""}</td><td class="num${f[j]!==fRef[j]?" over":""}">${sg(f[j]-fRef[j])}</td><td class="num">${reaW}</td><td class="num">${l[j]}</td><td class="num${l[j]!==lRef[j]?" over":""}">${sg(l[j]-lRef[j])}</td><td class="num${runs[j]?" over":""}">${runs[j]||""}</td><td class="num${r1m>R1_MAX?" over":""}">${r1m}</td><td class="num${gp.ex?" over":""}" title="maximum : ${r1GapMax(j)}">${gp.max}</td><td class="num">${absD}</td></tr>`}).join("");
+    return `<tr><td><strong>${esc(nm(j))}</strong> <span class="chip">${QUOT[j]}</span></td><td class="num${r1Cap(j)&&f[j]>r1Cap(j)?" over":""}">${f[j]}</td><td class="num" title="${state.prorata[j]?"au prorata du temps de travail":"part égale"}">${r1Target(j,weeks.length).toFixed(1).replace(".",",")}${state.prorata[j]?" *":""}${r1Cap(j)?` (max ${r1Cap(j)})`:""}</td><td class="num${f[j]!==fRef[j]?" over":""}">${sg(f[j]-fRef[j])}</td><td class="num">${reaW}</td><td class="num">${l[j]}</td><td class="num${l[j]!==lRef[j]?" over":""}">${sg(l[j]-lRef[j])}</td><td class="num${runs[j]?" over":""}">${runs[j]||""}</td><td class="num${r1m>R1_MAX?" over":""}">${r1m}</td><td class="num${gp.ex?" over":""}" title="maximum : ${r1GapMax(j)}">${gp.max}</td><td class="num">${absD}</td></tr>`}).join("");
   document.getElementById("anTitle").textContent=`Planning annuel ${y} · MAR réa / endoscopie`;
   document.getElementById("anOut").innerHTML=h+`</tbody></table>`+
     `<h3 style="margin:18px 0 8px">Bilan de l'année ${y}</h3><table class="list" style="width:auto"><thead><tr><th>MAR</th><th class="num">1res sem. de réa</th><th class="num">Part visée</th><th class="num">Écart / cycle</th><th class="num">Semaines de réa</th><th class="num">Consult. lib</th><th class="num">Écart / cycle</th><th class="num">Séries de 3 sem. de réa ou +</th><th class="num">Max R1 sur 10 sem.</th><th class="num">Max sem. d'affilée sans R1</th><th class="num">Jours d'absence</th></tr></thead><tbody>${bil}</tbody></table>`;
@@ -1541,11 +1546,21 @@ const RATE={1:1,2:.9,3:.9,4:.8,5:.8};
 // Part des 1res semaines de réa : égale pour tous, sauf pour un MAR « au prorata » (part proportionnelle à son temps de travail)
 const r1Weight=j=>state.prorata&&state.prorata[j]?RATE[j]:1;
 // Répartition homogène : au plus 4 semaines d'affilée sans R1 (davantage au prorata : 5 pour un MAR à 80 %)
-const R1_GAP=4, r1GapMax=j=>Math.round(R1_GAP/r1Weight(j));
+// Plafond annuel de R1 d'un MAR (0 = aucun) : MS au plus 8 par défaut
+const r1Cap=j=>+((state.r1Max||{})[j])||0;
+const R1_GAP=4, r1GapMax=j=>Math.max(Math.round(R1_GAP/r1Weight(j)),r1Cap(j)?Math.ceil(52/r1Cap(j))-1:0);
 // Plus longue suite de semaines sans R1 de j parmi les semaines données (lundis consécutifs) ; excès sur le maximum
 // (une semaine où le MAR est absent 3 jours ou plus ne compte pas)
 function r1Gaps(j,mons){let cur=0,max=0,ex=0; for(const m of mons){if(rawRows(m).first===j){cur=0} else if(absDaysIn(j,m)<3){cur++; if(cur>max) max=cur; if(cur>r1GapMax(j)) ex++}} return {max,ex}}
-const r1Target=(j,n)=>n*r1Weight(j)/[1,2,3,4,5].reduce((a,k)=>a+r1Weight(k),0);
+// Part visée sur n semaines : au prorata des poids, plafonnée, le reste réparti entre les autres MAR
+function r1Target(j,n){
+  const W=[1,2,3,4,5].reduce((a,k)=>a+r1Weight(k),0), raw=k=>n*r1Weight(k)/W, capN=k=>r1Cap(k)?r1Cap(k)*n/52:Infinity;
+  const capped=[1,2,3,4,5].filter(k=>raw(k)>capN(k));
+  if(capped.includes(j)) return capN(j);
+  if(!capped.length) return raw(j);
+  const extra=capped.reduce((a,k)=>a+raw(k)-capN(k),0), Wo=[1,2,3,4,5].filter(k=>!capped.includes(k)).reduce((a,k)=>a+r1Weight(k),0);
+  return raw(j)+extra*r1Weight(j)/Wo;
+}
 function fillYears(){
   const sel=document.getElementById("cYear"), v=sel.value, now=new Date().getFullYear(), ys=new Set([now-1,now,now+1]);
   state.indispos.forEach(i=>{ys.add(+i.from.slice(0,4));ys.add(+i.to.slice(0,4))});
@@ -1622,6 +1637,7 @@ function freeSeq(from,n,opt={}){
   const keep=F0.slice();
   const tgt=[0,1,2,3,4,5].map(j=>j?r1Target(j,n):0), gap=[0,1,2,3,4,5].map(j=>j?n/tgt[j]:0), consN=[...Array(n)].findIndex((_,i)=>isReaOnly(addDays(from,7*i))), nc=consN<0?n:consN;
   const gmax=[0,1,2,3,4,5].map(j=>j?r1GapMax(j):0);
+  const capped=[1,2,3,4,5].filter(r1Cap), wy=[...Array(n)].map((_,i)=>isoYear(addDays(from,7*i)));
   // semaines de présence cumulées (une semaine d'absence de 3 jours ou plus ne compte pas comme « sans R1 »)
   const pres=[0,1,2,3,4,5].map(j=>{if(!j) return []; const a=[0]; F0.forEach((_,i)=>a.push(a[i]+(ab[j][i]>=3?0:1))); return a});
   const cost=F=>{
@@ -1646,6 +1662,9 @@ function freeSeq(from,n,opt={}){
     for(let i=0;i+R1_WIN<=F.length;i++){const w=[0,0,0,0,0,0]; for(let k=i;k<i+R1_WIN;k++) w[F[k]]++; for(let j=1;j<=5;j++) if(w[j]>R1_MAX) c+=5000*(w[j]-R1_MAX)}
     for(let j=1;j<=5;j++){const g=pres[j][F.length]-pres[j][seen[j]+1]; if(g>gmax[j]) c+=1500*(g-gmax[j])}
     for(let j=1;j<=5;j++) c+=600*(cnt[j]-tgt[j])*(cnt[j]-tgt[j]);
+    // plafond annuel de R1 (année ISO)
+    for(const j of capped){const cy={}; for(let i=PRE;i<PRE+n;i++) if(F[i]===j){const y=wy[i-PRE]; cy[y]=(cy[y]||0)+1}
+      for(const y in cy) if(cy[y]>r1Cap(j)) c+=5000*(cy[y]-r1Cap(j))}
     // consultations lib (avant le passage à la réa seule) : les 2 MAR en endoscopie qui n'entrent pas en réa la
     // semaine suivante en font une chacun, s'ils sont présents ; on les veut réparties à parts égales
     if(nc){const L=[0,0,0,0,0,0]; let tot=0;
@@ -1964,6 +1983,7 @@ function renderRules(){
       `Au plus ${R1_MAX} semaines de R1 (1re semaine de réa) par MAR sur 10 semaines consécutives. Les échanges proposés (absences, desiderata, rééquilibrages) la respectent ; s'il n'y a pas d'autre solution, l'échange est proposé avec un avertissement mais n'est pas appliqué par « Régénérer ». Un dépassement est signalé en alerte critique.`,
       `« Optimiser le roulement » (sous la liste des desiderata) : compare un positionnement libre des R1 et les 120 ordres de relais possibles, après régénération complète, selon les desiderata respectés, puis les alertes critiques, les séries de 3 semaines de réa, le nombre d'échanges et l'équilibre. La solution retenue ne s'applique qu'après validation, et remplace alors les échanges de réa en cours.`,
       `R1 imposé manuellement : clic sur la case d'un MAR dans la vue annuelle, « Mettre en R1 (manuel) » (impossible si le MAR est absent cette semaine). Le planning passe en positionnement libre ; les autres semaines ne changent que si une règle l'exige (absence en R1, 3 semaines de réa d'affilée, plus de ${R1_MAX} R1 sur 10 semaines). Un R1 imposé n'est jamais modifié par les échanges ni par l'optimisation, qui le garde en priorité. Il est marqué d'un astérisque (R1*).`,
+      `Plafond annuel de R1 par MAR (Paramètres, « max R1/an ») : ${[1,2,3,4,5].filter(r1Cap).map(j=>`${nm(j)} au plus ${r1Cap(j)}`).join(", ")||"aucun"}. Le positionnement libre le respecte et les échanges qui le dépasseraient ne sont pas appliqués par « Régénérer ».`,
       `Répartition homogène des R1 : au plus ${R1_MAX} R1 sur 10 semaines et au plus ${R1_GAP} semaines d'affilée sans R1 pour chaque MAR (plus pour un MAR au prorata, par exemple 5 à 80 % ; les semaines d'absence de 3 jours ou plus ne comptent pas). Le positionnement libre la recherche, après les absences, les règles de réa et les desiderata ; le bilan de la vue annuelle donne la plus longue suite de semaines sans R1.`,
       `Pour respecter un desiderata, un échange peut faire enchaîner 3 semaines de réa d'affilée (jamais 4) : il est alors appliqué par « Régénérer » et n'est pas compté comme série à éviter.`,
       `Desiderata « être REA 1 » : respectés le plus possible, avant l'équilibre et la régularité des R1 (seules les règles d'absence, de semaines d'affilée et de maximum de R1 passent avant).`,
@@ -1979,7 +1999,7 @@ function renderRules(){
 function renderParams(){
   renderRules();
   const yr=yearWeeks(isoYear(parse(state.start))).length;
-  document.getElementById("pProrata").innerHTML=[1,2,3,4,5].map(j=>`<label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" data-prorata="${j}"${state.prorata[j]?" checked":""}> ${esc(nm(j))} (${QUOT[j]}) · ${r1Target(j,yr).toFixed(1).replace(".",",")} R1/an</label>`).join("");
+  document.getElementById("pProrata").innerHTML=[1,2,3,4,5].map(j=>`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" data-prorata="${j}"${state.prorata[j]?" checked":""}> ${esc(nm(j))} (${QUOT[j]})</label><label style="flex-direction:row;align-items:center;gap:4px">max <input type="number" min="0" max="52" data-r1max="${j}" value="${r1Cap(j)||""}" placeholder="—" style="width:56px"> R1/an</label><span class="note" style="margin:0">visé : ${r1Target(j,yr).toFixed(1).replace(".",",")}</span></div>`).join("");
   document.getElementById("pStart").value=state.start;
   document.getElementById("pNames").innerHTML=[1,2,3,4,5,6,7,8].map(j=>`<label>${j<=5?"MAR du roulement":j===6?"Extérieur réa":j===7?"Extérieur renfort":"MAR d'appoint (endoscopie, sur proposition)"} <span class="chip">${QUOT[j]}</span><input data-name="${j}" value="${esc(nm(j))}"></label>`).join("");
 }
@@ -1987,7 +2007,10 @@ document.getElementById("pStart").onchange=e=>{
   if(!e.target.value) return; const mon=mondayOf(parse(e.target.value)); state.start=iso(mon); e.target.value=state.start;
   document.getElementById("pMsg").textContent=`Semaine 1 du cycle fixée au lundi ${fmtLong.format(mon)}.`;
   document.getElementById("viewFrom").value=state.start; save(); renderPlanning();};
-document.getElementById("pProrata").onchange=e=>{const j=e.target.dataset.prorata; if(!j) return;
+document.getElementById("pProrata").onchange=e=>{
+  if(e.target.dataset.r1max){const j=e.target.dataset.r1max, v=Math.max(0,Math.round(+e.target.value||0)); state.r1Max={...state.r1Max,[j]:v}; save(); renderParams();
+    document.getElementById("pMsg").textContent=`${nm(+j)} : ${v?`au plus ${v} semaines de R1 par an`:"pas de plafond de R1"}. Relancez « Optimiser le roulement » (onglet Indisponibilités) pour en tenir compte.`; return}
+  const j=e.target.dataset.prorata; if(!j) return;
   state.prorata={...state.prorata,[j]:e.target.checked}; save(); renderParams();
   document.getElementById("pMsg").textContent=`Part de R1 de ${nm(+j)} : ${e.target.checked?"au prorata du temps de travail":"égale aux autres"}. Relancez « Optimiser le roulement » (onglet Indisponibilités) pour en tenir compte.`};
 document.getElementById("pNames").oninput=e=>{const j=e.target.dataset.name; if(!j) return;
@@ -2002,7 +2025,7 @@ document.getElementById("impFile").onchange=e=>{const f=e.target.files[0]; if(!f
   r.readAsText(f); e.target.value="";};
 document.getElementById("resetBtn").onclick=()=>{ if(!confirm((cloudUrl()?"Attention : le stockage en ligne est actif, la réinitialisation sera partagée avec tous les postes.\n\n":"")+"Supprimer toutes les indisponibilités, tous les remplacements et tous les échanges de réa, et remettre les paramètres par défaut ?")) return;
   try{localStorage.removeItem(STORE)}catch(e){} state=null; load(); load2();};
-function load2(){ if(typeof fillOffSelect==="function") setTimeout(fillOffSelect);state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; state.desirs=state.desirs||[]; state.fixed=state.fixed||{}; if(!state.prorata) state.prorata={4:true}; delete state.jcRea; state.trame=state.trame||{}; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
+function load2(){ if(typeof fillOffSelect==="function") setTimeout(fillOffSelect);state.names={...DEFAULT_NAMES,...state.names}; state.indispos=state.indispos||[]; state.swaps=state.swaps||[]; state.reaSwaps=state.reaSwaps||[]; state.afr=state.afr||[]; state.desirs=state.desirs||[]; state.fixed=state.fixed||{}; if(!state.prorata) state.prorata={4:true}; if(!state.r1Max) state.r1Max={4:8}; delete state.jcRea; state.trame=state.trame||{}; save(); document.getElementById("viewFrom").value=state.start; renderParams(); fillSelects(); renderIndispo(); renderPlanning();}
 
 /* ---------- Onglets ---------- */
 // Les onglets « par MAR » et « par poste » partagent la même section (période, alertes, export)
