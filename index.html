@@ -200,7 +200,7 @@ header{position:relative}
 <header>
   <button class="btn small logout" id="logoutBtn">Se déconnecter</button>
   <span class="sync" id="syncStatus" hidden></span>
-  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 5 nov. · R2 manuel</span></h1>
+  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 6 nov. · export réa 1 et 2</span></h1>
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
     <button role="tab" data-tab="annee" aria-selected="false">Vue annuelle</button>
@@ -227,7 +227,7 @@ header{position:relative}
     </label>
     <button class="btn" id="regenBtn" style="margin-top:18px" title="Retire les échanges devenus inutiles et applique toutes les propositions">Régénérer le planning</button>
     <button class="btn ghost" id="csvBtn" style="margin-top:18px">Exporter en CSV</button>
-    <button class="btn ghost" id="csvReaBtn" style="margin-top:18px" title="Une ligne par semaine : MAR en 1re et 2e semaine de réa">Exporter la réa 1 (CSV)</button>
+    <button class="btn ghost" id="csvReaBtn" style="margin-top:18px" title="Une ligne par semaine de la période affichée : MAR en 1re et 2e semaine de réa">Exporter réa 1 et réa 2 (CSV)</button>
     <button class="btn ghost" id="printBtn" style="margin-top:18px">Imprimer</button>
     <div class="summary" id="summary"></div>
   </div>
@@ -244,6 +244,7 @@ header{position:relative}
   <div class="toolbar">
     <label>Année<select id="anYear"></select></label>
     <button class="btn ghost" id="anPrint" style="margin-top:18px">Imprimer</button>
+    <button class="btn ghost" id="anCsv" style="margin-top:18px" title="Une ligne par semaine de l'année : MAR en 1re et 2e semaine de réa">Exporter réa 1 et réa 2 (CSV)</button>
   </div>
   <p class="note" id="anMsg" role="status"></p>
   <div class="legend" id="anLegend"></div>
@@ -1232,6 +1233,8 @@ function renderAnnual(){
   document.getElementById("anLegend").innerHTML=`<span class="t-REA" style="background:#e8a19a;color:#5a1a14">R1 : 1re semaine de réa</span><span class="t-REA">R2 : 2e semaine de réa</span><span class="t-ENDO">E : endoscopie</span><span class="t-INDISPO">C congé · F formation · M maladie · R récup. · G garde · T temps partiel · A autre (semaine entière)</span><span style="color:var(--crit)">ⁿ : jours d'absence dans la semaine</span><span>* : R1 ou R2 imposé manuellement</span><span class="dsr-l">cadre bleu : desiderata de réa 1 respecté (rouge : non respecté)</span>`;
 }
 document.getElementById("anYear").onchange=renderAnnual;
+document.getElementById("anCsv").onclick=()=>{const y=+document.getElementById("anYear").value;
+  downloadCsv(reaCsvRows(yearWeeks(y).map(m=>buildWeek(m))),`planning-rea1-rea2-${y}.csv`)};
 // impression : l'en-tête du site est masqué pour tenir l'année sur une page
 document.getElementById("anPrint").onclick=()=>{document.body.classList.add("print-annee"); window.print()};
 window.addEventListener("afterprint",()=>document.body.classList.remove("print-annee"));
@@ -1502,9 +1505,10 @@ function downloadCsv(rows,name){
   const csv="\ufeff"+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";")).join("\n");
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download=name; a.click();
 }
-document.getElementById("csvReaBtn").onclick=()=>{
-  const rows=[["Semaine n°","Du","Au","Cycle","REA 1 (1re semaine)","REA 2 (2e semaine)","Extérieur réa","Absences en réa","Échange de réa"]];
-  for(const W of lastWeeks){
+// Export réa 1 / réa 2 : une ligne par semaine (période affichée, ou année de la vue annuelle)
+function reaCsvRows(weeks){
+  const rows=[["Semaine n°","Du","Au","Cycle","REA 1 (1re semaine)","REA 2 (2e semaine)","Extérieur réa","Imposé manuellement","Absences en réa","Échange de réa"]];
+  for(const W of weeks){
     const r=rawRows(W.monday), first=r.first, second=[1,2,3,4,5].find(j=>j!==first&&r.s[j][0]==="REA");
     // jours d'absence regroupés par MAR et par motif : « SG 22–26 févr. (Congé) »
     const abs=[first,second].filter(Boolean).flatMap(j=>{const out=[];let g=null;
@@ -1512,10 +1516,12 @@ document.getElementById("csvReaBtn").onclick=()=>{
         if(m&&g&&g.m===m&&g.e===d-1) g.e=d; else if(m){g={m,s:d,e:d};out.push(g)} else g=null});
       return out.map(x=>`${nm(j)} ${x.s===x.e?fmt.format(W.days[x.s].date):W.days[x.s].date.getDate()+"–"+fmt.format(W.days[x.e].date)} (${x.m})`)});
     const sw=r.applied?(r.applied.kind==="relay"?`relais inversé ${nm(r.applied.a)} / ${nm(r.applied.b)}`:`${nm(r.applied.b)} à la place de ${nm(r.applied.a)}`):"";
-    rows.push([isoWeek(W.monday),fmtDM.format(W.monday),fmtDM.format(addDays(W.monday,4)),W.cyc+W.w,nm(first),second?nm(second):"",nm(6),abs.join(", "),sw]);
+    const mi=iso(W.monday), man=[+state.fixed[mi]===first?"REA 1":"",second&&+(state.fixedR2||{})[mi]===second?"REA 2":""].filter(Boolean).join(", ");
+    rows.push([isoWeek(W.monday),fmtDM.format(W.monday),fmtDM.format(addDays(W.monday,4)),W.cyc+W.w,nm(first),second?nm(second):"",nm(6),man,abs.join(", "),sw]);
   }
-  downloadCsv(rows,`planning-rea1-${iso(lastWeeks[0].monday)}.csv`);
-};
+  return rows;
+}
+document.getElementById("csvReaBtn").onclick=()=>downloadCsv(reaCsvRows(lastWeeks),`planning-rea1-rea2-${iso(lastWeeks[0].monday)}.csv`);
 document.getElementById("csvBtn").onclick=()=>{
   const rows=[["Semaine","Cycle","Date","Jour","MAR","Matin","Après-midi","Motif indisponibilité"]];
   for(const W of lastWeeks) W.days.forEach((D,i)=>{for(let j=1;j<=8;j++){const c=D.cell[j]; if(!c.role&&!c.ind) continue;
