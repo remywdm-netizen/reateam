@@ -200,7 +200,7 @@ header{position:relative}
 <header>
   <button class="btn small logout" id="logoutBtn">Se déconnecter</button>
   <span class="sync" id="syncStatus" hidden></span>
-  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 6 nov. · export réa 1 et 2</span></h1>
+  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 7 nov. · placement optimisé</span></h1>
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
     <button role="tab" data-tab="annee" aria-selected="false">Vue annuelle</button>
@@ -324,7 +324,7 @@ header{position:relative}
     <p class="note" id="dMsg" role="status"></p>
     <div class="scroll"><div id="dList"></div></div>
     <div class="row" style="margin-top:12px;align-items:center">
-      <button class="btn ghost" id="optBtn">Optimiser le roulement</button>
+      <button class="btn ghost" id="optBtn">Optimiser le placement des R1</button>
       <span class="note" id="optMsg" role="status" style="margin:0"></span>
     </div>
     <div class="scroll"><div id="optOut"></div></div>
@@ -382,7 +382,7 @@ header{position:relative}
   </div>
   <div class="panel">
     <h2>Part des semaines de R1</h2>
-    <p class="note" style="margin:0 0 10px">Par défaut, chaque MAR fait la même part des 1res semaines de réa, quel que soit son temps de travail. Cochez un MAR pour que sa part soit proportionnelle à son temps de travail (par exemple 80 % : 0,8 part contre 1 pour un MAR à part égale). Un plafond « max R1/an » limite le nombre de 1res semaines de réa du MAR par année (MS : 8 par défaut) ; les R1 en trop sont répartis entre les autres. Pris en compte par le positionnement libre des R1 (« Optimiser le roulement ») et par les échanges proposés.</p>
+    <p class="note" style="margin:0 0 10px">Par défaut, chaque MAR fait la même part des 1res semaines de réa, quel que soit son temps de travail. Cochez un MAR pour que sa part soit proportionnelle à son temps de travail (par exemple 80 % : 0,8 part contre 1 pour un MAR à part égale). Un plafond « max R1/an » limite le nombre de 1res semaines de réa du MAR par année (MS : 8 par défaut) ; les R1 en trop sont répartis entre les autres. Pris en compte par le positionnement libre des R1 (« Optimiser le placement des R1 ») et par les échanges proposés.</p>
     <div id="pProrata" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
   <div class="panel">
@@ -472,7 +472,7 @@ const nm=j=>state.names[j]||("MAR "+j);
 /* ---------- Trame théorique ---------- */
 // Ordre d'entrée en réa à partir de la semaine 1 du cycle
 const ORDER=[5,3,1,2,4];
-// ordre du relais en réa : celui choisi par « Optimiser le roulement », sinon l'ordre initial
+// ordre du relais en réa : celui choisi par « Optimiser le placement des R1 », sinon l'ordre initial
 const validOrder=o=>Array.isArray(o)&&o.length===5&&[1,2,3,4,5].every(j=>o.includes(j));
 const relayOrder=()=>validOrder(state.order)?state.order:ORDER;
 function baseWeek(w){ // w = 1..10
@@ -1626,11 +1626,9 @@ function renderCounter(){
 }
 document.getElementById("cYear").onchange=renderCounter;
 
-/* ---------- Optimisation du roulement ---------- */
-// Teste les 120 ordres de relais possibles : pour chacun, le planning est régénéré (échanges d'absence, desiderata,
-// rééquilibrages) sur la période des desiderata et des absences, puis noté. Classement : desiderata respectés,
-// alertes critiques, séries de 3 semaines de réa, échanges de réa nécessaires, écart d'équilibre des 1res semaines.
-function perms(a){return a.length<2?[a]:a.flatMap((x,i)=>perms([...a.slice(0,i),...a.slice(i+1)]).map(p=>[x,...p]))}
+/* ---------- Optimisation du placement des R1 ---------- */
+// Calcule un placement optimisé des R1 (positionnement libre) et le compare au planning actuel, chacun après
+// régénération complète (échanges d'absence, desiderata, rééquilibrages) sur la période des desiderata et des absences.
 function optHorizon(){
   const from=mondayOf(parse(state.start));
   let last=addDays(from,7*51);
@@ -1734,55 +1732,40 @@ function freeSeq(from,n,opt={}){
 const optRank=(a,b)=>(b.fx||0)-(a.fx||0)||(a.capEx||0)-(b.capEx||0)||b.ok-a.ok||a.crit-b.crit||a.runs-b.runs||(a.gaps||0)-(b.gaps||0)||a.rs-b.rs||a.bal-b.bal;
 let optRes=null;
 const sameO=(a,b)=>!!a&&!!b&&a.join()===b.join();
-const candLabel=r=>r.free?`Positionnement libre des R1${r.cur?"":" (optimisé)"}`:r.o.map(j=>esc(nm(j))).join(" → ");
+const candLabel=r=>r.cur?"Planning actuel":"Placement optimisé des R1";
 document.getElementById("optBtn").onclick=()=>{
   const msg=document.getElementById("optMsg"), btn=document.getElementById("optBtn"), snap=JSON.stringify(state);
-  const curFree=isFreeOn(), cur=relayOrder(), {from,n}=optHorizon(); fixedSnap={...state.fixed};
-  btn.disabled=true; msg.textContent="Analyse des ordres de relais…";
-  // pré-sélection des 24 meilleurs ordres sans échange, plus l'ordre actuel et l'ordre initial
-  let pre;
-  try{ pre=perms([1,2,3,4,5]).map(o=>{state=JSON.parse(snap); return scoreOrder(o,from,n,false)}) } finally{ state=JSON.parse(snap) }
-  pre.sort((a,b)=>b.base-a.base||a.conf-b.conf);
-  const todo=pre.slice(0,24).map(x=>({o:x.o})); [cur,ORDER].forEach(o=>{if(!todo.some(t=>sameO(t.o,o))) todo.push({o})});
-  if(!curFree) todo.find(t=>sameO(t.o,cur)).cur=true;
-  else todo.unshift({free:{from:state.free.from,seq:state.free.seq.slice()},cur:true});
-  todo.unshift({freeNew:true});
-  const res=[]; let i=0;
-  const step=()=>{
-    if(JSON.stringify(state)!==snap){btn.disabled=false; msg.textContent="Analyse interrompue : les données ont changé. Relancez-la."; return}
+  const {from,n}=optHorizon(); fixedSnap={...state.fixed};
+  btn.disabled=true; msg.textContent="Calcul du placement optimisé des R1…";
+  setTimeout(()=>{
+    let cur, opt;
     try{
-      for(const end=Math.min(i+3,todo.length);i<end;i++){
-        state=JSON.parse(snap); const t=todo[i];
-        if(t.freeNew){msg.textContent="Placement libre des R1…"; const seq=freeSeq(from,n); state=JSON.parse(snap); state.free={from:iso(from),seq}; res.push(scorePlan(from,n,{free:state.free}))}
-        else if(t.free){state.free=t.free; res.push(scorePlan(from,n,t))}
-        else res.push({...scoreOrder(t.o,from,n,true),cur:t.cur});
-      }
+      state=JSON.parse(snap);
+      cur=isFreeOn()?scorePlan(from,n,{free:{from:state.free.from,seq:state.free.seq.slice()},cur:true}):{...scoreOrder(relayOrder(),from,n,true),cur:true};
+      state=JSON.parse(snap); const seq=freeSeq(from,n);
+      state=JSON.parse(snap); state.free={from:iso(from),seq}; opt=scorePlan(from,n,{free:state.free});
     } finally{ state=JSON.parse(snap) }
-    if(i<todo.length){msg.textContent=`Analyse… ${i}/${todo.length}`; setTimeout(step); return}
     btn.disabled=false;
-    // un placement libre identique au placement actuel n'est pas proposé deux fois
-    const c=res.find(r=>r.cur), fn=res.find(r=>r.free&&!r.cur);
-    const list=res.filter(r=>!(r===fn&&c&&c.free&&sameO(c.free.seq,fn.free.seq)));
-    list.sort((a,b)=>optRank(a,b)||(!!b.cur-!!a.cur)); optRes={res:list};
-    const best=list[0];
-    // ce qui différencie la meilleure solution de l'actuelle, dans l'ordre du classement
-    const why=[["capEx","R1 au-delà des plafonds",1],["ok","desiderata respectés",-1],["crit","alertes critiques",1],["runs","séries de 3 semaines de réa",1],["gaps","semaines sans R1 en trop",1],["rs","échanges de réa",1]]
-      .filter(([k])=>(best[k]||0)!==(c[k]||0)).slice(0,2).map(([k,l])=>`${l} : ${k==="ok"?best.ok+"/"+best.tot:best[k]||0} contre ${k==="ok"?c.ok+"/"+c.tot:c[k]||0}`).join(", ");
-    msg.textContent=best.cur||!optRank(best,c)?"Le planning actuel est déjà le meilleur.":`${best.free?"Le positionnement libre des R1":"Un autre ordre de relais"} est meilleur que le planning actuel${why?` (${why})`:""} : voir ci-dessous.`;
+    const same=cur.free&&sameO(cur.free.seq,opt.free.seq), better=!same&&optRank(opt,cur)<0;
+    optRes={res:same?[cur]:[opt,cur]};
+    // ce qui différencie le placement optimisé du planning actuel, dans l'ordre du classement
+    const why=[["fx","R1 imposés gardés",-1],["capEx","R1 au-delà des plafonds",1],["ok","desiderata respectés",-1],["crit","alertes critiques",1],["runs","séries de 3 semaines de réa",1],["gaps","semaines sans R1 en trop",1],["rs","échanges de réa",1]]
+      .filter(([k])=>(opt[k]||0)!==(cur[k]||0)).slice(0,2).map(([k,l])=>`${l} : ${k==="ok"?opt.ok+"/"+opt.tot:opt[k]||0} contre ${k==="ok"?cur.ok+"/"+cur.tot:cur[k]||0}`).join(", ");
+    msg.textContent=same?"Le planning actuel est déjà le placement optimisé.":better?`Le placement optimisé est meilleur que le planning actuel${why?` (${why})`:""} : voir ci-dessous.`
+      :`Le placement optimisé n'améliore pas le planning actuel${why?` (${why})`:""} : vous pouvez le garder tel quel.`;
     renderOpt();
-  };
-  setTimeout(step);
+  },30);
 };
 function renderOpt(){
   const el=document.getElementById("optOut"); if(!optRes){el.innerHTML="";return}
-  const rows=optRes.res.filter((r,k)=>k<8||r.cur||r.free||sameO(r.o,ORDER));
+  const rows=optRes.res;
   const hasCap=[1,2,3,4,5].some(r1Cap);
   el.innerHTML=`<table class="list" style="margin-top:8px"><thead><tr><th>Placement des R1</th>${Object.keys(fixedSnap).length?`<th class="num">R1 imposés gardés</th>`:""}${hasCap?`<th class="num" title="R1 au-delà du plafond annuel (${[1,2,3,4,5].filter(r1Cap).map(k=>nm(k)+" "+r1Cap(k)).join(", ")})">R1 au-delà des plafonds</th>`:""}<th class="num">Desiderata respectés</th><th class="num">Alertes critiques</th><th class="num">Séries de 3 sem. de réa</th><th class="num" title="Semaines au-delà du maximum de semaines d'affilée sans R1, tous MAR confondus">Sem. sans R1 en trop</th><th class="num">Échanges de réa</th><th class="num">Écart aux parts de R1</th><th></th></tr></thead><tbody>`+
-    rows.map(r=>`<tr><td>${candLabel(r)}${r.cur?` <span class="chip">actuel</span>`:""}${!r.free&&sameO(r.o,ORDER)&&!r.cur?` <span class="chip">initial</span>`:""}</td>${Object.keys(fixedSnap).length?`<td class="num">${r.fx}/${Object.keys(fixedSnap).length}</td>`:""}${hasCap?`<td class="num${r.capEx?" over":""}">${r.capEx}</td>`:""}<td class="num">${r.ok}/${r.tot}</td><td class="num">${r.crit}</td><td class="num">${r.runs}</td><td class="num">${r.gaps}</td><td class="num">${r.rs}</td><td class="num">${r.bal.toFixed(1).replace(".",",")}</td><td>${r.cur?"":`<button class="btn small" data-opt="${optRes.res.indexOf(r)}">Appliquer</button>`}</td></tr>`).join("")+`</tbody></table>
-    <p class="note">Chaque solution est évaluée après régénération complète (échanges d'absence, desiderata, rééquilibrages) du ${fmtLong.format(optHorizon().from)} à la fin de la période des desiderata. Ordre du relais : le 1er nom fait sa 1re semaine de réa la semaine 1 du cycle, puis le relais suit l'ordre. Positionnement libre : le MAR en R1 est choisi semaine par semaine (sans absence, desiderata, au plus 3 R1 sur 10 semaines, pas 3 semaines de réa d'affilée, R1 répartis également), puis il fait sa 2e semaine de réa la semaine suivante ; les trames d'endoscopie (consultations, bloc) sont réattribuées en conséquence. Appliquer remplace les échanges de réa en cours et régénère le planning.</p>`;
+    rows.map(r=>`<tr><td>${candLabel(r)}</td>${Object.keys(fixedSnap).length?`<td class="num">${r.fx}/${Object.keys(fixedSnap).length}</td>`:""}${hasCap?`<td class="num${r.capEx?" over":""}">${r.capEx}</td>`:""}<td class="num">${r.ok}/${r.tot}</td><td class="num">${r.crit}</td><td class="num">${r.runs}</td><td class="num">${r.gaps}</td><td class="num">${r.rs}</td><td class="num">${r.bal.toFixed(1).replace(".",",")}</td><td>${r.cur?"":`<button class="btn small" data-opt="${optRes.res.indexOf(r)}">Appliquer</button>`}</td></tr>`).join("")+`</tbody></table>
+    <p class="note">Le placement optimisé choisit le MAR en R1 semaine par semaine (sans absence, desiderata, au plus 3 R1 sur 10 semaines, pas 3 semaines de réa d'affilée, parts et plafonds de R1, R1 réguliers) ; le R1 fait sa 2e semaine de réa la semaine suivante et les trames d'endoscopie sont réattribuées en conséquence. Les deux plannings sont évalués après régénération complète (échanges d'absence, desiderata, rééquilibrages) du ${fmtLong.format(optHorizon().from)} à la fin de la période des desiderata. Appliquer remplace les échanges de réa en cours et régénère le planning.</p>`;
 }
 document.getElementById("optOut").onclick=e=>{const b=e.target.closest("button[data-opt]"); if(!b) return;
-  const r=optRes.res[+b.dataset.opt], label=r.free?"le positionnement libre des R1":`l'ordre de relais ${r.o.map(nm).join(" → ")}`;
+  const r=optRes.res[+b.dataset.opt], label=r.free?"le placement optimisé des R1":`l'ordre de relais ${r.o.map(nm).join(" → ")}`;
   const nf=Object.keys(state.fixed).length-(r.fx||0);
   if(!confirm(`Appliquer ${label} ? Les échanges de réa en cours seront remplacés et le planning régénéré.`+(!r.free&&nf>0?` ${nf} R1 imposé${nf>1?"s":""} manuellement ne ser${nf>1?"ont":"a"} plus respecté${nf>1?"s":""} et ser${nf>1?"ont":"a"} retiré${nf>1?"s":""}.`:""))) return;
   const {from,n}=optHorizon();
@@ -1792,7 +1775,7 @@ document.getElementById("optOut").onclick=e=>{const b=e.target.closest("button[d
     const f={}; for(const [w2,j2] of Object.entries(state.fixed)) if(baseAt(parse(w2)).first===+j2) f[w2]=j2; state.fixed=f; state.fixedR2={}}
   state.reaSwaps=[]; const g=regenerate(from,Math.max(n,52));
   optRes=null; save(); renderIndispo(); renderPlanning(); renderOpt();
-  document.getElementById("optMsg").textContent=`${r.free?"Positionnement libre des R1":"Ordre du relais "+r.o.map(nm).join(" → ")} appliqué. Planning régénéré (${g.added} modification${g.added>1?"s":""}).`;
+  document.getElementById("optMsg").textContent=`${r.free?"Placement optimisé des R1":"Ordre du relais "+r.o.map(nm).join(" → ")} appliqué. Planning régénéré (${g.added} modification${g.added>1?"s":""}).`;
 };
 function renderDesirs(){
   const el=document.getElementById("dList"), list=state.desirs.slice().sort((a,b)=>a.monday.localeCompare(b.monday)||a.who-b.who);
@@ -2028,7 +2011,7 @@ function renderRules(){
       `Consultation lib impossible : un MAR du roulement en endoscopie ce jour-là et libre pour le bloc suivant est proposé. À défaut, deux possibilités (MAR en 2e semaine de réa ou AFR) sont simulées, et celle qui a le moins de conséquences est recommandée. Les autres consultations sont à confier à un extérieur.`,
       `Desiderata de réa 1 (onglet Indisponibilités, ou clic sur la case du MAR dans la vue annuelle) : semaines où un MAR souhaite être, ou ne pas être, en 1re semaine de réa. S'il le faut, un échange est proposé (inversion du relais de préférence, sinon échange des 2 semaines de réa puis rééquilibrage) et appliqué par « Régénérer », sauf s'il fait enchaîner 3 semaines de réa. Un desiderata ne passe jamais avant une absence, et les autres échanges le respectent.`,
       `Au plus ${R1_MAX} semaines de R1 (1re semaine de réa) par MAR sur 10 semaines consécutives. Les échanges proposés (absences, desiderata, rééquilibrages) la respectent ; s'il n'y a pas d'autre solution, l'échange est proposé avec un avertissement mais n'est pas appliqué par « Régénérer ». Un dépassement est signalé en alerte critique.`,
-      `« Optimiser le roulement » (sous la liste des desiderata) : compare un positionnement libre des R1 et les 120 ordres de relais possibles, après régénération complète, selon les desiderata respectés, puis les alertes critiques, les séries de 3 semaines de réa, le nombre d'échanges et l'équilibre. La solution retenue ne s'applique qu'après validation, et remplace alors les échanges de réa en cours.`,
+      `« Optimiser le placement des R1 » (sous la liste des desiderata) : calcule un placement optimisé des R1 et le compare au planning actuel, après régénération complète, selon les R1 imposés gardés, les plafonds de R1, les desiderata respectés, puis les alertes critiques, les séries de 3 semaines de réa, les semaines sans R1 en trop, le nombre d'échanges et l'équilibre. Il ne s'applique qu'après validation, et remplace alors les échanges de réa en cours.`,
       `R1 imposé manuellement : clic sur la case d'un MAR dans la vue annuelle, « Mettre en R1 (manuel) » (impossible si le MAR est absent cette semaine). Le planning passe en positionnement libre ; les autres semaines ne changent que si une règle l'exige (absence en R1, 3 semaines de réa d'affilée, plus de ${R1_MAX} R1 sur 10 semaines). Un R1 imposé n'est jamais modifié par les échanges ni par l'optimisation, qui le garde en priorité. Il est marqué d'un astérisque (R1*).`,
       `R2 imposé manuellement : même menu, « Mettre en R2 (manuel) ». Le MAR est en réa cette semaine-là avec le R1 ; le R1 de la semaine précédente ne fait alors qu'une semaine de réa. Seuls les R1 des 4 semaines avant et après peuvent changer, et seulement si une règle l'exige. Marqué R2* dans la vue annuelle.`,
       `Plafond annuel de R1 par MAR (Paramètres, « max R1/an ») : ${[1,2,3,4,5].filter(r1Cap).map(j=>`${nm(j)} au plus ${r1Cap(j)}`).join(", ")||"aucun"}. Le positionnement libre le respecte et les échanges qui le dépasseraient ne sont pas appliqués par « Régénérer ».`,
@@ -2057,10 +2040,10 @@ document.getElementById("pStart").onchange=e=>{
   document.getElementById("viewFrom").value=state.start; save(); renderPlanning();};
 document.getElementById("pProrata").onchange=e=>{
   if(e.target.dataset.r1max){const j=e.target.dataset.r1max, v=Math.max(0,Math.round(+e.target.value||0)); state.r1Max={...state.r1Max,[j]:v}; save(); renderParams();
-    document.getElementById("pMsg").textContent=`${nm(+j)} : ${v?`au plus ${v} semaines de R1 par an`:"pas de plafond de R1"}. Relancez « Optimiser le roulement » (onglet Indisponibilités) pour en tenir compte.`; return}
+    document.getElementById("pMsg").textContent=`${nm(+j)} : ${v?`au plus ${v} semaines de R1 par an`:"pas de plafond de R1"}. Relancez « Optimiser le placement des R1 » (onglet Indisponibilités) pour en tenir compte.`; return}
   const j=e.target.dataset.prorata; if(!j) return;
   state.prorata={...state.prorata,[j]:e.target.checked}; save(); renderParams();
-  document.getElementById("pMsg").textContent=`Part de R1 de ${nm(+j)} : ${e.target.checked?"au prorata du temps de travail":"égale aux autres"}. Relancez « Optimiser le roulement » (onglet Indisponibilités) pour en tenir compte.`};
+  document.getElementById("pMsg").textContent=`Part de R1 de ${nm(+j)} : ${e.target.checked?"au prorata du temps de travail":"égale aux autres"}. Relancez « Optimiser le placement des R1 » (onglet Indisponibilités) pour en tenir compte.`};
 document.getElementById("pNames").oninput=e=>{const j=e.target.dataset.name; if(!j) return;
   state.names[j]=e.target.value.trim()||DEFAULT_NAMES[j]; save(); renderRules(); fillOffSelect(); fillPrat(); fillSelects(); renderIndispo(); renderPlanning();};
 document.getElementById("expBtn").onclick=()=>{
