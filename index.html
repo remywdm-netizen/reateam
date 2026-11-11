@@ -200,7 +200,7 @@ header{position:relative}
 <header>
   <button class="btn small logout" id="logoutBtn">Se déconnecter</button>
   <span class="sync" id="syncStatus" hidden></span>
-  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 7 nov. · placement optimisé</span></h1>
+  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 11 nov. · agenda iPhone</span></h1>
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
     <button role="tab" data-tab="annee" aria-selected="false">Vue annuelle</button>
@@ -245,6 +245,9 @@ header{position:relative}
     <label>Année<select id="anYear"></select></label>
     <button class="btn ghost" id="anPrint" style="margin-top:18px">Imprimer</button>
     <button class="btn ghost" id="anCsv" style="margin-top:18px" title="Une ligne par semaine de l'année : MAR en 1re et 2e semaine de réa">Exporter réa 1 et réa 2 (CSV)</button>
+    <label>Agenda de<select id="anIcsWho"></select></label>
+    <label style="flex-direction:row;align-items:center;gap:6px;margin-top:18px"><input type="checkbox" id="anIcsR2" checked> avec les R2</label>
+    <button class="btn ghost" id="anIcs" style="margin-top:18px" title="Fichier calendrier (.ics) avec les semaines de réa du MAR choisi, pour l'app Calendrier de l'iPhone, Google Agenda ou Outlook">Ajouter à l'agenda (iPhone)</button>
   </div>
   <p class="note" id="anMsg" role="status"></p>
   <div class="legend" id="anLegend"></div>
@@ -1227,12 +1230,42 @@ function renderAnnual(){
     const r1m=Math.max(0,...weeks.map(W=>r1Count(j,W.monday))), gp=r1Gaps(j,weeks.map(W=>W.monday));
     const reaW=weeks.filter(W=>reaAt(j,W.monday)).length, absD=weeks.reduce((n,W)=>n+W.days.filter(D=>D.cell[j].ind).length,0);
     return `<tr><td><strong>${esc(nm(j))}</strong> <span class="chip">${QUOT[j]}</span></td><td class="num${r1Cap(j)&&f[j]>r1Cap(j)?" over":""}">${f[j]}</td><td class="num" title="${state.prorata[j]?"au prorata du temps de travail":"part égale"}">${r1Target(j,weeks.length).toFixed(1).replace(".",",")}${state.prorata[j]?" *":""}${r1Cap(j)?` (max ${r1Cap(j)})`:""}</td><td class="num${f[j]!==fRef[j]?" over":""}">${sg(f[j]-fRef[j])}</td><td class="num">${reaW}</td><td class="num">${l[j]}</td><td class="num${l[j]!==lRef[j]?" over":""}">${sg(l[j]-lRef[j])}</td><td class="num${runs[j]?" over":""}">${runs[j]||""}</td><td class="num${r1m>R1_MAX?" over":""}">${r1m}</td><td class="num${gp.ex?" over":""}" title="maximum : ${r1GapMax(j)}">${gp.max}</td><td class="num">${absD}</td></tr>`}).join("");
+  {const s2=document.getElementById("anIcsWho"), v=s2.value; s2.innerHTML=[1,2,3,4,5].map(k=>`<option value="${k}">${esc(nm(k))}</option>`).join(""); if(v) s2.value=v}
   document.getElementById("anTitle").textContent=`Planning annuel ${y} · MAR réa / endoscopie`;
   document.getElementById("anOut").innerHTML=h+`</tbody></table>`+
     `<h3 style="margin:18px 0 8px">Bilan de l'année ${y}</h3><table class="list" style="width:auto"><thead><tr><th>MAR</th><th class="num">1res sem. de réa</th><th class="num">Part visée</th><th class="num">Écart / cycle</th><th class="num">Semaines de réa</th><th class="num">Consult. lib</th><th class="num">Écart / cycle</th><th class="num">Séries de 3 sem. de réa ou +</th><th class="num">Max R1 sur 10 sem.</th><th class="num">Max sem. d'affilée sans R1</th><th class="num">Jours d'absence</th></tr></thead><tbody>${bil}</tbody></table>`;
   document.getElementById("anLegend").innerHTML=`<span class="t-REA" style="background:#e8a19a;color:#5a1a14">R1 : 1re semaine de réa</span><span class="t-REA">R2 : 2e semaine de réa</span><span class="t-ENDO">E : endoscopie</span><span class="t-INDISPO">C congé · F formation · M maladie · R récup. · G garde · T temps partiel · A autre (semaine entière)</span><span style="color:var(--crit)">ⁿ : jours d'absence dans la semaine</span><span>* : R1 ou R2 imposé manuellement</span><span class="dsr-l">cadre bleu : desiderata de réa 1 respecté (rouge : non respecté)</span>`;
 }
 document.getElementById("anYear").onchange=renderAnnual;
+// Agenda (.ics) : une journée entière du lundi au vendredi pour chaque semaine de R1 (et de R2) du MAR
+function reaIcs(j,y,withR2){
+  const d8=d=>iso(d).replace(/-/g,""), esc2=t=>String(t).replace(/[\\;,]/g,m=>"\\"+m).replace(/\n/g,"\\n");
+  const stamp=new Date().toISOString().replace(/[-:]/g,"").replace(/\.\d+/,"");
+  const L=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Planning MAR//Rea//FR","CALSCALE:GREGORIAN","METHOD:PUBLISH",`X-WR-CALNAME:Réa ${esc2(nm(j))}`];
+  let n=0;
+  for(const m of yearWeeks(y)){
+    const r=rawRows(m), first=r.first, second=[1,2,3,4,5].find(k=>k!==first&&r.s[k][0]==="REA");
+    const kind=first===j?"R1":(withR2&&second===j?"R2":null); if(!kind) continue;
+    const other=kind==="R1"?second:first, abs=absDaysIn(j,m);
+    L.push("BEGIN:VEVENT",`UID:rea-${kind}-${nm(j).replace(/\W/g,"")}-${d8(m)}@planning-mar`,`DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${d8(m)}`,`DTEND;VALUE=DATE:${d8(addDays(m,5))}`,
+      `SUMMARY:${esc2(kind==="R1"?"Réa 1 (1re semaine)":"Réa 2 (2e semaine)")}`,
+      `DESCRIPTION:${esc2(`Semaine ${isoWeek(m)} · ${kind==="R1"?"REA 1":"REA 2"} : ${nm(j)}${other?` · ${kind==="R1"?"REA 2":"REA 1"} : ${nm(other)}`:""} · ${nm(6)}`+(abs?` · ${abs} jour(s) d'absence saisis`:""))}`,
+      "TRANSP:TRANSPARENT","END:VEVENT"); n++;
+  }
+  L.push("END:VCALENDAR");
+  return {text:L.join("\r\n")+"\r\n",n};
+}
+document.getElementById("anIcs").onclick=()=>{
+  const y=+document.getElementById("anYear").value, j=+document.getElementById("anIcsWho").value, r2=document.getElementById("anIcsR2").checked;
+  const {text,n}=reaIcs(j,y,r2), msg=document.getElementById("anMsg");
+  if(!n){msg.textContent=`${nm(j)} n'a aucune semaine de réa en ${y}.`;return}
+  const url=URL.createObjectURL(new Blob([text],{type:"text/calendar;charset=utf-8"}));
+  // iPhone / iPad : ouvrir le fichier propose directement « Tout ajouter » dans l'app Calendrier
+  if(/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1)) location.href=url;
+  else{const a=document.createElement("a"); a.href=url; a.download=`rea-${nm(j)}-${y}.ics`; a.click()}
+  msg.textContent=`${n} semaine${n>1?"s":""} de réa de ${nm(j)} en ${y} exportée${n>1?"s":""} vers l'agenda. Sur iPhone, touchez « Tout ajouter » ; ailleurs, ouvrez le fichier téléchargé.`;
+};
 document.getElementById("anCsv").onclick=()=>{const y=+document.getElementById("anYear").value;
   downloadCsv(reaCsvRows(yearWeeks(y).map(m=>buildWeek(m))),`planning-rea1-rea2-${y}.csv`)};
 // impression : l'en-tête du site est masqué pour tenir l'année sur une page
