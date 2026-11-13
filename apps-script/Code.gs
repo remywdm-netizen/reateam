@@ -11,7 +11,11 @@
  *
  * Les données sont rangées dans ce tableur :
  *  - feuille « Données » : sauvegarde complète du planning (lue et écrite par la page) ;
- *  - feuille « Indisponibilités » : liste lisible des absences (mise à jour à chaque enregistrement).
+ *  - feuille « Indisponibilités » : liste lisible des absences (mise à jour à chaque enregistrement) ;
+ *  - feuille « Planning réa » : REA 1 / REA 2 semaine par semaine (calculé par la page, mis à jour à chaque enregistrement).
+ *
+ * Mise à jour du script : collez la nouvelle version, enregistrez, puis « Déployer » > « Gérer les déploiements »
+ * > crayon (modifier) > Version : « Nouvelle version » > « Déployer ». L'URL de l'application Web ne change pas.
  * Sans le code d'accès, rien ne peut être lu ni modifié.
  */
 const ACCESS_CODE = "REMPLACEZ-PAR-VOTRE-CODE";
@@ -33,6 +37,7 @@ function doPost(e) {
       if (cur.version && req.version !== cur.version) return out_({ ok: false, error: "conflict", version: cur.version, state: cur.state, savedAt: cur.savedAt });
       const version = (cur.version || 0) + 1, savedAt = new Date().toISOString();
       write_(req.state, version, savedAt);
+      if (Array.isArray(req.rea) && req.rea.length) writeRea_(req.rea);
       return out_({ ok: true, version: version, savedAt: savedAt });
     }
     return out_({ ok: false, error: "action inconnue" });
@@ -68,4 +73,14 @@ function write_(state, version, savedAt) {
   ind.clearContents();
   const data = [["MAR", "Du", "Au", "Motif", "Commentaire"]].concat(list.map(function (i) { return [names[i.who] || ("MAR " + i.who), i.from, i.to, i.motif, i.note || ""]; }));
   ind.getRange(1, 1, data.length, 5).setNumberFormat("@").setValues(data);
+}
+
+// Planning de réa lisible : tableau envoyé par la page (une ligne par semaine, première ligne = en-têtes)
+function writeRea_(rows) {
+  const w = rows[0].length, data = rows.map(function (r) { const x = r.slice(0, w).map(String); while (x.length < w) x.push(""); return x; });
+  const sh = sheet_("Planning réa");
+  sh.clearContents();
+  sh.getRange(1, 1, data.length, w).setNumberFormat("@").setValues(data);
+  sh.getRange(1, 1, 1, w).setFontWeight("bold");
+  sh.setFrozenRows(1);
 }
