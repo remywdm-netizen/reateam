@@ -201,7 +201,7 @@ header{position:relative}
 <header>
   <button class="btn small logout" id="logoutBtn">Se déconnecter</button>
   <span class="sync" id="syncStatus" hidden></span>
-  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 13 nov. · réa 1 figé</span></h1>
+  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 13 nov. · Google Sheet réa</span></h1>
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
     <button role="tab" data-tab="annee" aria-selected="false">Vue annuelle</button>
@@ -1560,6 +1560,12 @@ function downloadCsv(rows,name){
   const csv="\ufeff"+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";")).join("\n");
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download=name; a.click();
 }
+// Tableau « Planning réa » envoyé au tableur Google à chaque enregistrement : l'année du début du planning et la suivante
+function reaSheetRows(){
+  try{const y=isoYear(parse(state.start)); const rows=reaCsvRows([...yearWeeks(y),...yearWeeks(y+1)].map(m=>buildWeek(m)));
+    rows[0]=["Année",...rows[0]]; for(let i=1;i<rows.length;i++) rows[i]=[rows[i][1].slice(-4),...rows[i]]; return rows}
+  catch(e){return null}
+}
 // Export réa 1 / réa 2 : une ligne par semaine (période affichée, ou année de la vue annuelle)
 function reaCsvRows(weeks){
   const rows=[["Semaine n°","Du","Au","Cycle","REA 1 (1re semaine)","REA 2 (2e semaine)","Extérieur réa","Imposé manuellement","Absences en réa","Échange de réa"]];
@@ -2184,7 +2190,7 @@ async function cloudPush(){
   if(cloud.busy){clearTimeout(cloud.timer); cloud.timer=setTimeout(cloudPush,800); return}
   cloud.busy=true; cloudStatus("En ligne · enregistrement…","");
   try{
-    const res=await cloudCall({action:"save",version:cloud.version,state});
+    const res=await cloudCall({action:"save",version:cloud.version,state,rea:reaSheetRows()});
     if(res.ok){cloud.version=res.version; cloud.dirty=false; metaSave(); cloudStatus("En ligne · enregistré "+hhmm(),"ok")}
     else if(res.error==="conflict"){
       cloud.dirty=false; cloud.version=res.version; metaSave(); cloudAdopt(res.state);
