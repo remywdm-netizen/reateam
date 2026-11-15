@@ -90,11 +90,13 @@ Fonctionnement :
 - **Hors ligne** : la modification est gardée sur le poste et envoyée au retour de la connexion, même après un rechargement de la page.
 - **Tableur** : la feuille « Données » contient la sauvegarde complète, et la feuille « Indisponibilités » une liste lisible des absences.
 
-### Feuille « Planning réa »
+### Feuilles « Planning réa » et « Planning hebdo »
 
 À chaque enregistrement, le site écrit aussi dans le tableur une feuille **« Planning réa »** lisible : une ligne par semaine, sur l'année de début du planning et la suivante. Elle donne pour chaque semaine les MAR en REA 1 et REA 2, l'extérieur réa, les R1/R2 imposés à la main, les absences pendant la réa et les échanges.
 
-Cette feuille n'apparaît qu'avec la version à jour du script. Pour l'installer : collez le nouveau `apps-script/Code.gs` dans Extensions > Apps Script, enregistrez, puis allez dans « Déployer » > « Gérer les déploiements » > crayon > Version « Nouvelle version » > « Déployer ». L'URL ne change pas. La feuille sert à la lecture : la modifier ne change pas le site.
+La feuille **« Planning hebdo »** donne le planning détaillé, mis à jour au fur et à mesure : une ligne par jour ouvré sur les mêmes années, avec le REA 1 de la semaine puis une colonne par MAR (extérieurs et AFR compris). Chaque case indique le poste du matin et de l'après-midi, par exemple « Endoscopie / Consultation lib », ou le motif d'absence.
+
+Ces feuilles n'apparaissent qu'avec la version à jour du script. Pour l'installer : collez le nouveau `apps-script/Code.gs` dans Extensions > Apps Script, enregistrez, puis allez dans « Déployer » > « Gérer les déploiements » > crayon > Version « Nouvelle version » > « Déployer ». L'URL ne change pas. La feuille sert à la lecture : la modifier ne change pas le site.
 
 ## Données
 
