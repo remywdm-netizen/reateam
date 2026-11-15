@@ -201,7 +201,7 @@ header{position:relative}
 <header>
   <button class="btn small logout" id="logoutBtn">Se déconnecter</button>
   <span class="sync" id="syncStatus" hidden></span>
-  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 13 nov. · Google Sheet réa</span></h1>
+  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 15 nov. · Google Sheet hebdo</span></h1>
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
     <button role="tab" data-tab="annee" aria-selected="false">Vue annuelle</button>
@@ -1561,10 +1561,21 @@ function downloadCsv(rows,name){
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download=name; a.click();
 }
 // Tableau « Planning réa » envoyé au tableur Google à chaque enregistrement : l'année du début du planning et la suivante
-function reaSheetRows(){
-  try{const y=isoYear(parse(state.start)); const rows=reaCsvRows([...yearWeeks(y),...yearWeeks(y+1)].map(m=>buildWeek(m)));
-    rows[0]=["Année",...rows[0]]; for(let i=1;i<rows.length;i++) rows[i]=[rows[i][1].slice(-4),...rows[i]]; return rows}
-  catch(e){return null}
+// Tableaux lisibles envoyés au tableur Google à chaque enregistrement (année de début du planning et suivante) :
+//  - « Planning réa » : une ligne par semaine (REA 1, REA 2…) ;
+//  - « Planning hebdo » : une ligne par jour, une colonne par MAR (matin / après-midi, ou motif d'absence).
+function sheetTables(){
+  try{
+    const y=isoYear(parse(state.start)), weeks=[...yearWeeks(y),...yearWeeks(y+1)].map(m=>buildWeek(m));
+    const rea=reaCsvRows(weeks); rea[0]=["Année",...rea[0]]; for(let i=1;i<rea.length;i++) rea[i]=[rea[i][1].slice(-4),...rea[i]];
+    const ids=[1,2,3,4,5,6,7,8], fmtD=new Intl.DateTimeFormat("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"});
+    const txt=(c,d)=>{if(c.ind&&(!c.role||c.role==="INDISPO")) return `Absent (${c.ind.motif})`; if(!c.role) return "";
+      const h=HALF[c.role]?HALF[libRole(c.role,d)].map(r=>HLABEL[r]):[LABEL[c.role]||c.role,LABEL[c.role]||c.role]; return h[0]===h[1]?h[0]:`${h[0]} / ${h[1]}`};
+    const hebdo=[["Semaine n°","Cycle","Date","Jour","REA 1",...ids.map(nm)]];
+    for(const W of weeks){const r1=nm(rawRows(W.monday).first);
+      W.days.forEach((D,d)=>hebdo.push([String(isoWeek(W.monday)),W.cyc+W.w,fmtD.format(D.date),DAYS[d],r1,...ids.map(j=>txt(D.cell[j],d))]))}
+    return {rea,hebdo};
+  }catch(e){return {}}
 }
 // Export réa 1 / réa 2 : une ligne par semaine (période affichée, ou année de la vue annuelle)
 function reaCsvRows(weeks){
@@ -2190,7 +2201,8 @@ async function cloudPush(){
   if(cloud.busy){clearTimeout(cloud.timer); cloud.timer=setTimeout(cloudPush,800); return}
   cloud.busy=true; cloudStatus("En ligne · enregistrement…","");
   try{
-    const res=await cloudCall({action:"save",version:cloud.version,state,rea:reaSheetRows()});
+    const T=sheetTables();
+    const res=await cloudCall({action:"save",version:cloud.version,state,rea:T.rea,hebdo:T.hebdo});
     if(res.ok){cloud.version=res.version; cloud.dirty=false; metaSave(); cloudStatus("En ligne · enregistré "+hhmm(),"ok")}
     else if(res.error==="conflict"){
       cloud.dirty=false; cloud.version=res.version; metaSave(); cloudAdopt(res.state);
