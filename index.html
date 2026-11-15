@@ -201,7 +201,7 @@ header{position:relative}
 <header>
   <button class="btn small logout" id="logoutBtn">Se déconnecter</button>
   <span class="sync" id="syncStatus" hidden></span>
-  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 15 nov. · Google Sheet hebdo</span></h1>
+  <h1>Planning MAR · Réa / Endoscopie <span class="ver" title="Version du site chargée par ce navigateur">v 15 nov. · Google Sheet trame</span></h1>
   <nav role="tablist">
     <button role="tab" data-tab="planning" aria-selected="true">Planning</button>
     <button role="tab" data-tab="annee" aria-selected="false">Vue annuelle</button>
@@ -1574,7 +1574,12 @@ function sheetTables(){
     const hebdo=[["Semaine n°","Cycle","Date","Jour","REA 1",...ids.map(nm)]];
     for(const W of weeks){const r1=nm(rawRows(W.monday).first);
       W.days.forEach((D,d)=>hebdo.push([String(isoWeek(W.monday)),W.cyc+W.w,fmtD.format(D.date),DAYS[d],r1,...ids.map(j=>txt(D.cell[j],d))]))}
-    return {rea,hebdo};
+    // trame du service : un onglet par semaine de l'année de début (cases remplies seulement, la mise en forme est envoyée à part)
+    const hash=t=>{let h=5381; for(let i=0;i<t.length;i++) h=((h<<5)+h+t.charCodeAt(i))|0; return (h>>>0).toString(36)};
+    const tw=weeks.filter(W=>isoYear(W.monday)===y).map(W=>{const mi=iso(W.monday), fill={...trameFill(W),...(state.trame[mi]||{})};
+      return {name:"S"+isoWeek(W.monday)+" "+y,fill,hash:hash(JSON.stringify(fill))}});
+    const trame={layout:TRAME,layoutHash:hash(JSON.stringify(TRAME)+trameLastRow),rows:trameLastRow,weeks:tw};
+    return {rea,hebdo,trame};
   }catch(e){return {}}
 }
 // Export réa 1 / réa 2 : une ligne par semaine (période affichée, ou année de la vue annuelle)
@@ -2202,7 +2207,7 @@ async function cloudPush(){
   cloud.busy=true; cloudStatus("En ligne · enregistrement…","");
   try{
     const T=sheetTables();
-    const res=await cloudCall({action:"save",version:cloud.version,state,rea:T.rea,hebdo:T.hebdo});
+    const res=await cloudCall({action:"save",version:cloud.version,state,rea:T.rea,hebdo:T.hebdo,trame:T.trame});
     if(res.ok){cloud.version=res.version; cloud.dirty=false; metaSave(); cloudStatus("En ligne · enregistré "+hhmm(),"ok")}
     else if(res.error==="conflict"){
       cloud.dirty=false; cloud.version=res.version; metaSave(); cloudAdopt(res.state);
