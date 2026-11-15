@@ -96,6 +96,8 @@ Fonctionnement :
 
 La feuille **« Planning hebdo »** donne le planning détaillé, mis à jour au fur et à mesure : une ligne par jour ouvré sur les mêmes années, avec le REA 1 de la semaine puis une colonne par MAR (extérieurs et AFR compris). Chaque case indique le poste du matin et de l'après-midi, par exemple « Endoscopie / Consultation lib », ou le motif d'absence.
 
+Le script crée aussi **un onglet par semaine** de l'année du planning (« S1 2027 », « S2 2027 »…), au format de la trame du service : même mise en page que l'export Excel de l'onglet Trame service, avec les modifications faites dans cet onglet. Les onglets sont créés à partir d'un modèle masqué, « Modèle trame ». Seules les semaines modifiées sont réécrites à chaque enregistrement. La première synchronisation, qui crée les 52 onglets, peut prendre une à deux minutes.
+
 Ces feuilles n'apparaissent qu'avec la version à jour du script. Pour l'installer : collez le nouveau `apps-script/Code.gs` dans Extensions > Apps Script, enregistrez, puis allez dans « Déployer » > « Gérer les déploiements » > crayon > Version « Nouvelle version » > « Déployer ». L'URL ne change pas. La feuille sert à la lecture : la modifier ne change pas le site.
 
 ## Données
